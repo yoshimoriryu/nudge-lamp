@@ -27,7 +27,7 @@ Claude Code reports `idle` both for a turn that ended a minute ago and for a ses
 
 When a session starts waiting for you, Agent Lamp waits 1.5 seconds to skip short flickers. Then it plays a sound and posts a banner. It stays quiet when that session's iTerm2 tab is already in front of you. Clicking a banner or a menu row brings the session's iTerm2 window, tab and split pane to the front. Agent Lamp finds the tab by matching the session's terminal device (tty) against each iTerm2 session.
 
-The session file format is internal to Claude Code and not documented. I read it from Claude Code 2.1.328 in November 2026. A later release could rename the fields, and the lamp would then show every session as idle. Run `AgentLamp --print` to see what the app reads.
+The session file format is internal to Claude Code and not documented. Agent Lamp was tested against Claude Code 2.1.328 in November 2026. A later release could rename the fields, and the lamp would then show every session as idle. Run `AgentLamp --print` to see what the app reads.
 
 ## Install
 
@@ -76,4 +76,4 @@ With five sessions open and four of them working, `top` reported 0.3% to 0.4% CP
 
 ## License
 
-MIT
+MIT. Agent Lamp is an independent project. It is not affiliated with or endorsed by Anthropic. Claude Code is a product of Anthropic.
