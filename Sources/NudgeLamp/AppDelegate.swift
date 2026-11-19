@@ -162,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let update = tracker.update(records, now: Date(), focused: focused)
         views = update.views
-        update.events.forEach(announce)
+        announce(update.events)
 
         let after = Set(views.filter(\.state.needsYou).map(\.record.sessionId))
         notifier.clear(sessionIds: Array(before.subtracting(after)))
@@ -178,14 +178,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return Set(records.filter { ProcessLookup.tty(of: $0.pid) == tty }.map(\.sessionId))
     }
 
-    private func announce(_ event: LampEvent) {
-        if bannersOn { notifier.post(event) }
-        play(sound(event.state == .blocked ? Self.waitingSoundKey : Self.finishedSoundKey))
+    /// Posts a banner per event and plays one sound. A waiting session wins over a finished one,
+    /// since a new sound cuts off the one before it.
+    private func announce(_ events: [LampEvent]) {
+        guard !events.isEmpty else { return }
+        if bannersOn { events.forEach(notifier.post) }
+        let blocked = events.contains { $0.state == .blocked }
+        play(sound(blocked ? Self.waitingSoundKey : Self.finishedSoundKey))
     }
 
+    /// The sound playing now, so a new one can cut it off instead of overlapping it.
+    private var playing: NSSound?
+
     private func play(_ name: String) {
+        playing?.stop()
         guard name != "None" else { return }
-        NSSound(named: NSSound.Name(name))?.play()
+        playing = NSSound(named: NSSound.Name(name))
+        playing?.play()
     }
 
     private func updateButton() {
@@ -277,6 +286,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         return items
     }
+    /// Hovering a sound in a picker plays it, so you can compare sounds without choosing one.
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        guard let item, item.action == #selector(chooseSound(_:)),
+              let pair = item.representedObject as? [String], pair.count == 2 else { return }
+        play(pair[1])
+    }
+
     func menuDidClose(_ menu: NSMenu) {
         if menu === self.menu {
             menuIsOpen = false
@@ -343,6 +359,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(soundMenu("Sound When Waiting", key: Self.waitingSoundKey))
         menu.addItem(soundMenu("Sound When Finished", key: Self.finishedSoundKey))
+        let test = actionItem("Send Test Nudge", #selector(sendTestNudge))
+        test.toolTip = "Plays the waiting sound and shows a sample banner"
+        menu.addItem(test)
         menu.addItem(toggleItem("Show Banners", on: bannersOn, #selector(toggleBanners)))
         menu.addItem(toggleItem("Animated Critter", on: characterOn, #selector(toggleCharacter)))
         menu.addItem(sizeMenu())
@@ -421,6 +440,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         defaults.set(pair[1], forKey: pair[0])
         play(pair[1])
     }
+
+    /// Plays the waiting sound and posts a sample banner, the way a real waiting session would.
+    @objc private func sendTestNudge() {
+        let name = sound(Self.waitingSoundKey)
+        play(name)
+        if bannersOn { notifier.postTest(sound: name) }
+    }
+
     @objc private func toggleBanners() { bannersOn.toggle() }
 
     private func sizeMenu() -> NSMenuItem {

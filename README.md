@@ -36,7 +36,7 @@ If you download the zip from the releases page with a browser, macOS blocks the 
 
 ## Settings
 
-The menu has a size picker with four sizes, a sound picker for each event, a banner switch, a switch for the animated bulb and an Open at Login switch.
+The menu has a size picker with four sizes, a sound picker for each event, a banner switch, a switch for the animated bulb and an Open at Login switch. Hover over a sound in the picker to hear it. Send Test Nudge plays the waiting sound and shows a sample banner.
 
 ## Notes
 

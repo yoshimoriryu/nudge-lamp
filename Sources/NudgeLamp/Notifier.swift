@@ -32,6 +32,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.add(UNNotificationRequest(identifier: record.sessionId, content: content, trigger: nil))
     }
 
+    /// A sample banner for the Send Test Nudge menu item. It carries no pid, so clicking it does nothing.
+    func postTest(sound: String) {
+        guard let center else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Test: a session is waiting for you"
+        content.body = sound == "None"
+            ? "This is how Nudge Lamp nudges you. The waiting sound is off."
+            : "This is how Nudge Lamp nudges you, with the \(sound) sound."
+        center.add(UNNotificationRequest(identifier: "nudge-lamp-test", content: content, trigger: nil))
+    }
+
     /// Removes banners for sessions that no longer need the user.
     func clear(sessionIds: [String]) {
         guard !sessionIds.isEmpty else { return }
