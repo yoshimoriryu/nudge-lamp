@@ -95,7 +95,7 @@ enum Doctor {
             ("Open at login", loginItem),
         ]
         for (name, value) in rows {
-            print(name.padding(toLength: 17, withPad: " ", startingAt: 0) + value)
+            print(name.padding(toLength: 18, withPad: " ", startingAt: 0) + value)
         }
     }
 }
