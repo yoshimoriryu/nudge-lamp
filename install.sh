@@ -93,4 +93,4 @@ fi
 
 say "Installed $DEST/$APP_NAME and started it."
 say "Look for the critter in the menu bar. macOS will ask to allow notifications."
-say "Click the critter for setup items if banners or iTerm2 tab switching are not allowed yet."
+say "Click the critter for setup items if banners or terminal tab switching are not allowed yet."
