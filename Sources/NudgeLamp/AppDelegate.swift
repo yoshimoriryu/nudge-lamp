@@ -221,8 +221,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 height: critterHeight
             )
             if critterLayer.frame != frame {
-                let bar = button.window?.frame.height ?? 0
-                NSLog("Nudge Lamp layout: size=\(critterSize.rawValue) points=\(layout.points) lift=\(layout.lift) frame=\(NSStringFromRect(frame)) button=\(NSStringFromRect(button.bounds)) bar=\(bar)")
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 critterLayer.frame = frame
