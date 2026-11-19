@@ -23,6 +23,15 @@ if let index = CommandLine.arguments.firstIndex(of: "--render"), index + 1 < Com
     exit(0)
 }
 
+// `AgentLamp --doctor` prints a setup report. See Doctor.printReport for how to launch it.
+if CommandLine.arguments.contains("--doctor") {
+    Task {
+        await Doctor.printReport()
+        exit(0)
+    }
+    RunLoop.main.run()
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

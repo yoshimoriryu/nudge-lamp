@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Each distinct pose is drawn once per appearance. All loops together use about a hundred small images.
     private var poseImages: [CritterPose: CGImage] = [:]
     private var poseImagesKey = ""
+    private var notificationPermission: Permission = .notAsked
     /// Reserves room for the critter so the count still lays out to its right.
     private var critterPlaceholder = NSImage()
     /// Points per sprite pixel. Notched displays have a 38pt menu bar, so the critter grows there.
@@ -55,6 +56,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         notifier.onClick = { [weak self] pid in self?.reveal(pid: pid) }
         notifier.setUp()
+        refreshNotificationPermission()
+
+        // install.sh passes this flag so a fresh install starts with the Mac.
+        if CommandLine.arguments.contains("--enable-login-item") {
+            do {
+                try SMAppService.mainApp.register()
+            } catch {
+                NSLog("Agent Lamp: could not add login item: \(error.localizedDescription)")
+            }
+        }
 
         refresh()
         // Polling a handful of small files once a second costs less than watching them,
@@ -159,7 +170,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Menu
 
     func menuNeedsUpdate(_ menu: NSMenu) { rebuildMenu() }
-    func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }
+    func menuWillOpen(_ menu: NSMenu) {
+        menuIsOpen = true
+        refreshNotificationPermission()
+    }
+
+    private func refreshNotificationPermission() {
+        Task {
+            let permission = await Doctor.notifications()
+            if permission != notificationPermission {
+                notificationPermission = permission
+                if menuIsOpen { rebuildMenu() }
+            }
+        }
+    }
+
+    /// Menu items that fix missing permissions. Empty once everything is allowed.
+    private func setupItems() -> [NSMenuItem] {
+        var items: [NSMenuItem] = []
+        switch notificationPermission {
+        case .allowed: break
+        case .notAsked: items.append(actionItem("Allow Notifications…", #selector(askNotifications)))
+        case .denied, .unavailable: items.append(actionItem("Turn On Notifications in Settings…", #selector(openNotificationSettings)))
+        }
+        switch Doctor.iTermControl() {
+        case .notAsked: items.append(actionItem("Allow iTerm2 Tab Switching…", #selector(askITermControl)))
+        case .denied: items.append(actionItem("Allow iTerm2 Tab Switching in Settings…", #selector(openAutomationSettings)))
+        default: break
+        }
+        return items
+    }
     func menuDidClose(_ menu: NSMenu) { menuIsOpen = false }
 
     private func rebuildMenu() {
@@ -183,6 +223,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        let setup = setupItems()
+        if !setup.isEmpty {
+            let header = NSMenuItem(title: "Setup", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            setup.forEach(menu.addItem)
+            menu.addItem(.separator())
+        }
         if views.contains(where: { $0.state == .finished }) {
             menu.addItem(actionItem("Mark All as Seen", #selector(markAllSeen)))
         }
@@ -241,6 +289,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func markAllSeen() {
         tracker.acknowledgeAll()
         refresh()
+    }
+
+    @objc private func askNotifications() {
+        notifier.setUp()
+        refreshNotificationPermission()
+    }
+
+    @objc private func openNotificationSettings() {
+        NSWorkspace.shared.open(Doctor.notificationSettingsURL)
+    }
+
+    @objc private func askITermControl() {
+        // The consent prompt blocks the calling thread until answered, so keep it off the main thread.
+        Task.detached { _ = Doctor.iTermControl(askIfNeeded: true) }
+    }
+
+    @objc private func openAutomationSettings() {
+        NSWorkspace.shared.open(Doctor.automationSettingsURL)
     }
 
     @objc private func toggleSound() { soundOn.toggle() }

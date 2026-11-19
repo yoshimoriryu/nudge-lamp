@@ -3,7 +3,7 @@ import AppKit
 /// Talks to iTerm2 over AppleScript. The first call triggers the macOS Automation prompt.
 @MainActor
 enum ITerm {
-    static let bundleID = "com.googlecode.iterm2"
+    nonisolated static let bundleID = "com.googlecode.iterm2"
 
     private static let focusedTTYScript = NSAppleScript(source: """
         tell application id "\(bundleID)" to get tty of current session of current window

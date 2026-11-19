@@ -29,23 +29,34 @@ The session file format is internal to Claude Code and not documented. I read it
 
 ## Install
 
-You need macOS 15 or later and Swift 6 from Xcode or the Xcode command line tools.
+Run this in Terminal:
 
 ```sh
-git clone https://github.com/yoshimoriryu/agent-lamp.git
-cd agent-lamp
-make install
+curl -fsSL https://raw.githubusercontent.com/yoshimoriryu/agent-lamp/main/install.sh | bash
 ```
 
-`make install` builds `Agent Lamp.app`, copies it to `~/Applications` and opens it. Choose Open at Login in the menu to start it with your Mac.
+The script downloads the latest release into `~/Applications`, starts it and adds it to your login items. It needs macOS 15 or later and no developer tools. The release runs on Apple silicon and Intel Macs. Run the same command again to update.
 
-On first launch macOS asks two questions. Allow notifications to get banners. Allow Agent Lamp to control iTerm2 so it can tell which tab is in front and switch tabs for you. The app has an ad hoc signature, so macOS asks about iTerm2 again after each rebuild.
+The script takes options after `bash -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/yoshimoriryu/agent-lamp/main/install.sh | bash -s -- --no-login     # skip the login item
+curl -fsSL https://raw.githubusercontent.com/yoshimoriryu/agent-lamp/main/install.sh | bash -s -- --from-source  # build with Swift 6
+curl -fsSL https://raw.githubusercontent.com/yoshimoriryu/agent-lamp/main/install.sh | bash -s -- --uninstall
+```
+
+On first launch macOS asks whether Agent Lamp may send notifications. The first time iTerm2 is in front, macOS also asks whether Agent Lamp may control iTerm2, which it needs to see which tab you are on and to switch tabs. If you said no to either one, click the critter. A Setup section at the top of the menu opens the right page in System Settings.
+
+The app has an ad hoc signature and is not notarized. Installing with curl skips the Gatekeeper prompt, because curl does not mark downloads as quarantined. If you download the zip with a browser instead, the script clears that flag when you install from it, or you can right-click the app and choose Open.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
 | `make test` | Runs the unit tests for the state logic. |
+| `make install` | Builds from your checkout and installs it with `install.sh --from-source`. |
+| `make doctor` | Prints the app version, the session count and the state of each macOS permission. |
+| `make release` | Builds a universal app, zips it and publishes a GitHub release for `install.sh`. |
 | `make run` | Builds the app and opens it from `build/` without installing it. |
 | `make uninstall` | Quits the app and removes it from `~/Applications`. |
 | `"build/Agent Lamp.app/Contents/MacOS/AgentLamp" --print` | Prints every session with its lamp state, raw status and tty, then exits. |
