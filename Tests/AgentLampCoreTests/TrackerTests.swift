@@ -191,3 +191,61 @@ private func session(
         #expect(ProcessLookup.isAlive(older) == false, "file predates this process, so the PID was recycled")
     }
 }
+
+/// Deterministic generator so animator tests do not depend on luck.
+private struct SeededRandom: RandomNumberGenerator {
+    var state: UInt64
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state
+    }
+}
+
+@Suite struct CritterTests {
+    @Test func everyMoodHasThreeOwnVariants() {
+        let all = CritterMood.allCases.flatMap { CritterVariant.variants(for: $0) }
+        #expect(all.count == 12)
+        #expect(Set(all).count == 12)
+    }
+
+    @Test func blockedAlwaysShowsExclamationAndFinishedAlwaysShowsYellowTip() {
+        for t in 0..<200 {
+            for variant in CritterVariant.variants(for: .blocked) {
+                #expect(variant.pose(at: t).badge == .exclamation)
+            }
+            for variant in CritterVariant.variants(for: .finished) {
+                #expect(variant.pose(at: t).tip == .yellow)
+            }
+        }
+    }
+
+    @Test func posesStayInsideTheSprite() {
+        for variant in CritterVariant.allCases {
+            for t in 0..<200 {
+                let pose = variant.pose(at: t)
+                #expect((-3...0).contains(pose.dy), "\(variant) jumps out of frame")
+                #expect((-1...1).contains(pose.dx))
+            }
+        }
+    }
+
+    @Test func moodChangeSwitchesVariantImmediately() {
+        var rng = SeededRandom(state: 7)
+        var animator = CritterAnimator(mood: .idle)
+        _ = animator.next(mood: .idle, using: &rng)
+        _ = animator.next(mood: .blocked, using: &rng)
+        #expect(CritterVariant.variants(for: .blocked).contains(animator.variant))
+    }
+
+    @Test func variantRotatesWithinMoodOverTime() {
+        var rng = SeededRandom(state: 42)
+        var animator = CritterAnimator(mood: .working)
+        var seen = Set<CritterVariant>()
+        for _ in 0..<2000 {
+            _ = animator.next(mood: .working, using: &rng)
+            seen.insert(animator.variant)
+        }
+        #expect(seen.count >= 2)
+        #expect(seen.isSubset(of: Set(CritterVariant.variants(for: .working))))
+    }
+}

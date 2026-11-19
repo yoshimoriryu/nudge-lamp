@@ -2,16 +2,20 @@
 
 Agent Lamp is a macOS menu bar app that shows whether your Claude Code sessions are working, waiting for you, or idle. I built it because I kept switching to a browser while an agent ran, and only noticed much later that it had stopped on a permission prompt.
 
-## What the icon means
+## The critter
 
-| Icon | Color | Meaning |
+A small pixel critter sits in the menu bar and acts out what your sessions are doing. The most urgent session decides its mood. A number next to it counts the sessions that need you, and the menu lists every session with its state, how long it has been in that state, and its folder.
+
+| Mood | When | What it does |
 | --- | --- | --- |
-| Exclamation mark | Red | A session stopped mid-turn on a permission prompt, a question or another dialog. |
-| Check mark | Orange | A session finished its turn and you have not looked at it yet. |
-| Half circle, animated | Green | A session is running a turn or a shell command. |
-| Empty ring | Grey | Nothing is running and nothing is waiting. |
+| ![blocked](docs/blocked.gif) | A session stopped mid-turn on a permission prompt, a question or another dialog. | Jumps, waves or shakes next to a red exclamation mark. Its antenna blinks red. |
+| ![finished](docs/finished.gif) | A session finished its turn and you have not looked at it yet. | Cheers, taps its foot or looks around, with a yellow antenna and a sparkle. |
+| ![working](docs/working.gif) | A session is running a turn or a shell command. | Walks, types or thinks with a row of dots. |
+| ![idle](docs/idle.gif) | Nothing is running and nothing is waiting. | Dims and sleeps, blinks or daydreams. |
 
-The most urgent session decides the icon. A number next to the icon counts the sessions that need you. The menu lists every session with its state, how long it has been in that state, and its folder.
+Each mood has three animations. The critter switches to another one every 8 to 16 seconds, and switches right away when the mood changes. The critter is drawn at 1.5 points per sprite pixel on a notched display and at 1 point elsewhere, so it stays sharp at either menu bar height.
+
+Turn off Animated Critter in the menu to get a plain status icon instead: a red exclamation mark, an orange check mark, a green half circle or a grey ring.
 
 ## How it works
 
@@ -45,16 +49,17 @@ On first launch macOS asks two questions. Allow notifications to get banners. Al
 | `make run` | Builds the app and opens it from `build/` without installing it. |
 | `make uninstall` | Quits the app and removes it from `~/Applications`. |
 | `"build/Agent Lamp.app/Contents/MacOS/AgentLamp" --print` | Prints every session with its lamp state, raw status and tty, then exits. |
+| `"build/Agent Lamp.app/Contents/MacOS/AgentLamp" --render docs` | Writes one GIF per mood and a contact sheet of every animation. |
 
 ## Limits
 
 Agent Lamp tracks Claude Code sessions only. Tab switching and focus detection work with iTerm2 only. In other terminals the icon, banners and sounds still work, but clicking a session only brings iTerm2 forward.
 
-With four sessions open on my Mac, `ps` reported 0.1% CPU and about 70 MB of memory for the app.
+With five sessions open and four of them working, `top` reported 0.3% to 0.4% CPU and about 23 MB of memory for the app while the critter animated. The plain icon uses about 0.1% CPU.
 
 ## Code layout
 
-`Sources/AgentLampCore` has no UI. It holds the session file reader, the process lookup and the state tracker, and the tests in `Tests/AgentLampCoreTests` cover it. `Sources/AgentLamp` is the menu bar app: icon, menu, banners and the iTerm2 AppleScript.
+`Sources/AgentLampCore` has no UI. It holds the session file reader, the process lookup and the state tracker, and the tests in `Tests/AgentLampCoreTests` cover it. The critter's poses are defined in `Sources/AgentLampCore/Critter.swift`, so the tests check them too. `Sources/AgentLamp` is the menu bar app: the critter renderer, the menu, banners and the iTerm2 AppleScript.
 
 ## License
 

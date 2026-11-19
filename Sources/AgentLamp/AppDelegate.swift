@@ -10,8 +10,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var tracker = Tracker()
     private var views: [SessionView] = []
     private var timer: Timer?
+    private var animationTimer: Timer?
     private var frame = 0
     private var menuIsOpen = false
+    private var lampState: LampState = .idle
+    private var animator = CritterAnimator()
+    private var lastPose: CritterPose?
+    /// The critter lives on its own layer. Swapping layer contents is cheap, while
+    /// swapping `button.image` makes AppKit lay out and redraw the whole status item.
+    private let critterLayer = CALayer()
+    /// Each distinct pose is drawn once per appearance. All loops together use about a hundred small images.
+    private var poseImages: [CritterPose: CGImage] = [:]
+    private var poseImagesKey = ""
+    /// Reserves room for the critter so the count still lays out to its right.
+    private var critterPlaceholder = NSImage()
+    /// Points per sprite pixel. Notched displays have a 38pt menu bar, so the critter grows there.
+    /// 1.5pt is 3 device pixels on Retina, which keeps the pixel art sharp.
+    private var pixelPoints: CGFloat {
+        (statusItem.button?.bounds.height ?? 0) >= 30 ? 1.5 : 1
+    }
 
     private let defaults = UserDefaults.standard
     private var soundOn: Bool {
@@ -22,12 +39,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         get { defaults.object(forKey: "banners") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "banners") }
     }
+    private var characterOn: Bool {
+        get { defaults.object(forKey: "character") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "character") }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menu.delegate = self
         menu.autoenablesItems = false
         statusItem.menu = menu
         statusItem.button?.imagePosition = .imageLeading
+        statusItem.button?.wantsLayer = true
+        critterLayer.magnificationFilter = .nearest
+        statusItem.button?.layer?.addSublayer(critterLayer)
 
         notifier.onClick = { [weak self] pid in self?.reveal(pid: pid) }
         notifier.setUp()
@@ -40,6 +64,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+
+        let animationTimer = Timer(timeInterval: 1 / CritterAnimator.fps, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.animate() }
+        }
+        RunLoop.main.add(animationTimer, forMode: .common)
+        self.animationTimer = animationTimer
+    }
+
+    /// Advances the critter one frame. Skips the redraw when the pose did not change.
+    private func animate() {
+        guard characterOn, let button = statusItem.button else { return }
+        let pose = animator.next(mood: CritterMood(lampState))
+        guard pose != lastPose else { return }
+        lastPose = pose
+
+        let scale = button.window?.backingScaleFactor ?? 2
+        let appearance = button.effectiveAppearance
+        let key = "\(appearance.name.rawValue)@\(scale)x\(pixelPoints)"
+        if key != poseImagesKey {
+            poseImages.removeAll()
+            poseImagesKey = key
+        }
+        if poseImages[pose] == nil {
+            poseImages[pose] = CritterRenderer.cgImage(pose, pixelScale: scale * pixelPoints, appearance: appearance)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        critterLayer.contentsScale = scale
+        critterLayer.contents = poseImages[pose]
+        CATransaction.commit()
     }
 
     // MARK: Polling
@@ -73,11 +127,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateButton() {
         guard let button = statusItem.button else { return }
         let summary = LampSummary(views)
-        button.image = StatusIcon.image(for: summary.state, frame: frame)
-        button.title = summary.needsYouCount > 0 ? " \(summary.needsYouCount)" : ""
+        lampState = summary.state
+        if characterOn {
+            let size = NSSize(
+                width: CGFloat(CritterRenderer.columns) * pixelPoints,
+                height: CGFloat(CritterRenderer.rows) * pixelPoints
+            )
+            if critterPlaceholder.size != size { critterPlaceholder = NSImage(size: size) }
+            if button.image !== critterPlaceholder { button.image = critterPlaceholder }
+        } else {
+            button.image = StatusIcon.image(for: summary.state, frame: frame)
+        }
+        let title = summary.needsYouCount > 0 ? " \(summary.needsYouCount)" : ""
+        if button.title != title { button.title = title }
         button.toolTip = summary.needsYouCount > 0
             ? "\(summary.needsYouCount) Claude Code session(s) need you"
             : "Agent Lamp: \(StatusIcon.label(for: summary.state))"
+
+        critterLayer.isHidden = !characterOn
+        if characterOn, let cell = button.cell as? NSButtonCell {
+            let frame = cell.imageRect(forBounds: button.bounds)
+            if critterLayer.frame != frame {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                critterLayer.frame = frame
+                CATransaction.commit()
+            }
+        }
     }
 
     // MARK: Menu
@@ -112,6 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(toggleItem("Play Sound", on: soundOn, #selector(toggleSound)))
         menu.addItem(toggleItem("Show Banners", on: bannersOn, #selector(toggleBanners)))
+        menu.addItem(toggleItem("Animated Critter", on: characterOn, #selector(toggleCharacter)))
         menu.addItem(toggleItem("Open at Login", on: SMAppService.mainApp.status == .enabled, #selector(toggleLogin)))
         menu.addItem(.separator())
         menu.addItem(actionItem("Quit Agent Lamp", #selector(quit), key: "q"))
@@ -168,6 +245,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleSound() { soundOn.toggle() }
     @objc private func toggleBanners() { bannersOn.toggle() }
+
+    @objc private func toggleCharacter() {
+        characterOn.toggle()
+        lastPose = nil
+        updateButton()
+    }
 
     @objc private func toggleLogin() {
         let service = SMAppService.mainApp

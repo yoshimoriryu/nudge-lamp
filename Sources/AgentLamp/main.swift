@@ -15,6 +15,14 @@ if CommandLine.arguments.contains("--print") {
     exit(0)
 }
 
+// `AgentLamp --render <dir>` writes the critter animations as GIFs plus a contact sheet.
+if let index = CommandLine.arguments.firstIndex(of: "--render"), index + 1 < CommandLine.arguments.count {
+    let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)
+    try DocRenderer.render(to: directory)
+    print("Wrote critter animations to \(directory.path)")
+    exit(0)
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
