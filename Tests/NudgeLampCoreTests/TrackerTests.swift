@@ -290,3 +290,29 @@ private struct SeededRandom: RandomNumberGenerator {
         #expect(ProcessLookup.tty(of: 99_999_999) == nil)
     }
 }
+
+@Suite struct CritterLayoutTests {
+    @Test func notchedMenuBarFitsEverySizeWithoutScalingDown() {
+        // 38 pt is the menu bar height measured on a notched MacBook.
+        #expect(CritterLayout.fit(.small, barHeight: 38) == CritterLayout(points: 1.0, lift: 3))
+        #expect(CritterLayout.fit(.medium, barHeight: 38) == CritterLayout(points: 1.5, lift: 3))
+        #expect(CritterLayout.fit(.large, barHeight: 38) == CritterLayout(points: 2.0, lift: 3))
+        #expect(CritterLayout.fit(.extraLarge, barHeight: 38) == CritterLayout(points: 2.5, lift: 1))
+    }
+
+    @Test func shortMenuBarStepsDownToWhatFits() {
+        #expect(CritterLayout.fit(.small, barHeight: 24) == CritterLayout(points: 1.0, lift: 3))
+        #expect(CritterLayout.fit(.medium, barHeight: 24) == CritterLayout(points: 1.5, lift: 1))
+        #expect(CritterLayout.fit(.extraLarge, barHeight: 24) == CritterLayout(points: 1.5, lift: 1))
+    }
+
+    @Test func everyLayoutFitsItsBar() {
+        for size in CritterSize.allCases {
+            for bar in stride(from: 16.0, through: 60.0, by: 1.0) {
+                let layout = CritterLayout.fit(size, barHeight: bar)
+                #expect(layout.points <= size.points)
+                if bar >= 15 { #expect(layout.height <= bar, "\(size) at \(bar) pt") }
+            }
+        }
+    }
+}

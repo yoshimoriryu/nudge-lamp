@@ -5,7 +5,8 @@ import NudgeLampCore
 /// The critter is a light bulb with a face, thin metal arms and a screw base for a body.
 enum CritterRenderer {
     static let columns = 23
-    static let rows = 17
+    /// Canvas height with full jump headroom. `lift` trims it when the menu bar is short.
+    static let rows = CritterLayout.bodyRows + CritterLayout.fullLift
 
     private static func rgb(_ hex: UInt32) -> NSColor {
         NSColor(
@@ -37,10 +38,11 @@ enum CritterRenderer {
         }
     }
 
-    static func image(_ pose: CritterPose, scale: CGFloat = 1) -> NSImage {
+    static func image(_ pose: CritterPose, scale: CGFloat = 1, lift: Int = CritterLayout.fullLift) -> NSImage {
+        let rows = CritterLayout.bodyRows + lift
         let size = NSSize(width: CGFloat(columns) * scale, height: CGFloat(rows) * scale)
         let image = NSImage(size: size, flipped: true) { _ in
-            draw(pose, scale: scale)
+            draw(pose, scale: scale, lift: lift)
             return true
         }
         image.isTemplate = false
@@ -48,11 +50,11 @@ enum CritterRenderer {
     }
 
     /// Rasterizes a pose for a CALayer. `appearance` resolves the label colors of the badges.
-    static func cgImage(_ pose: CritterPose, pixelScale: CGFloat, appearance: NSAppearance) -> CGImage? {
+    static func cgImage(_ pose: CritterPose, pixelScale: CGFloat, lift: Int, appearance: NSAppearance) -> CGImage? {
         let width = Int(CGFloat(columns) * pixelScale)
-        let height = Int(CGFloat(rows) * pixelScale)
+        let height = Int(CGFloat(CritterLayout.bodyRows + lift) * pixelScale)
         return bitmap(width: width, height: height, appearance: appearance) {
-            image(pose, scale: pixelScale).draw(in: NSRect(x: 0, y: 0, width: width, height: height))
+            image(pose, scale: pixelScale, lift: lift).draw(in: NSRect(x: 0, y: 0, width: width, height: height))
         }
     }
 
@@ -75,7 +77,7 @@ enum CritterRenderer {
     }
 
     /// Draws into the current graphics context, which must be flipped (y grows downward).
-    static func draw(_ pose: CritterPose, scale: CGFloat) {
+    static func draw(_ pose: CritterPose, scale: CGFloat, lift: Int = CritterLayout.fullLift) {
         let context = NSGraphicsContext.current?.cgContext
         context?.saveGState()
         defer { context?.restoreGState() }
@@ -92,7 +94,8 @@ enum CritterRenderer {
         // Sprite origin: the glass spans columns ox...ox+9 and rows oy...oy+8,
         // the screw base rows oy+9...oy+12, and the feet row oy+13.
         let ox = 4 + pose.dx
-        let oy = 3 + pose.dy
+        // Jumps higher than the headroom are clipped to it, so tight layouts jump less.
+        let oy = lift + max(pose.dy, -lift)
         let (fill, rim) = glass(pose.bulb)
 
         // Glass: draw the rim shape, then fill it one pixel in.
@@ -152,29 +155,36 @@ enum CritterRenderer {
             px(ox + 4, oy + 7, 2, 1, ink)
         }
 
-        // Badge in the top-right corner, fixed so it stays readable while the body moves
+        // Badge in the top-right corner, fixed so it stays readable while the body moves.
+        // Badge rows assume full headroom; shift them up when the canvas is shorter.
+        let by = lift - CritterLayout.fullLift
+        func bx(_ x: Int, _ y: Int, _ w: Int = 1, _ h: Int = 1, _ color: NSColor) {
+            px(x, max(0, y + by), w, h, color)
+        }
         switch pose.badge {
         case .exclamation:
-            px(19, 1, 2, 6, red)
-            px(19, 8, 2, 2, red)
+            // Keep the one-row gap above the dot; the bar gets shorter on a tight canvas.
+            let barTop = max(0, 1 + by), dotTop = 8 + by
+            px(19, barTop, 2, dotTop - 1 - barTop, red)
+            px(19, dotTop, 2, 2, red)
         case .sparkle(let big):
-            px(19, 4, 3, 1, yellow)
-            px(20, 3, 1, 3, yellow)
+            bx(19, 4, 3, 1, yellow)
+            bx(20, 3, 1, 3, yellow)
             if big {
-                px(18, 4, 5, 1, yellow)
-                px(20, 2, 1, 5, yellow)
+                bx(18, 4, 5, 1, yellow)
+                bx(20, 2, 1, 5, yellow)
             }
         case .dots(let count):
             for i in 0..<max(0, min(3, count)) {
-                px(16 + i * 2, 2, 1, 1, .labelColor)
+                bx(16 + i * 2, 2, 1, 1, .labelColor)
             }
         case .zee(let step):
             let x = 16 + step, y = 8 - step * 3
             let color = NSColor.secondaryLabelColor
-            px(x, y, 4, 1, color)
-            px(x + 2, y + 1, 1, 1, color)
-            px(x + 1, y + 2, 1, 1, color)
-            px(x, y + 3, 4, 1, color)
+            bx(x, y, 4, 1, color)
+            bx(x + 2, y + 1, 1, 1, color)
+            bx(x + 1, y + 2, 1, 1, color)
+            bx(x, y + 3, 4, 1, color)
         case nil:
             break
         }

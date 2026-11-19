@@ -216,3 +216,56 @@ public struct CritterAnimator: Sendable {
         return next(mood: mood, using: &rng)
     }
 }
+
+/// How big the critter is drawn in the menu bar.
+public enum CritterSize: String, CaseIterable, Sendable {
+    case small, medium, large, extraLarge
+
+    public var title: String {
+        switch self {
+        case .small: "Small"
+        case .medium: "Medium"
+        case .large: "Large"
+        case .extraLarge: "Extra Large"
+        }
+    }
+
+    /// Points per sprite pixel. Multiples of 0.5 land on whole device pixels on Retina screens.
+    public var points: Double {
+        switch self {
+        case .small: 1.0
+        case .medium: 1.5
+        case .large: 2.0
+        case .extraLarge: 2.5
+        }
+    }
+}
+
+/// The sprite scale and jump headroom that fit a menu bar of a given height.
+public struct CritterLayout: Equatable, Sendable {
+    /// The bulb's own height in sprite pixels, from the top of the glass to the feet.
+    public static let bodyRows = 14
+    /// Rows above the bulb for jumping. Full height when it fits, one row when space is tight.
+    public static let fullLift = 3
+    public static let tightLift = 1
+
+    public let points: Double
+    public let lift: Int
+
+    public var rows: Int { Self.bodyRows + lift }
+    public var height: Double { Double(rows) * points }
+
+    /// The largest layout no bigger than `size` that fits in `barHeight` points.
+    /// It first trims jump headroom, then steps the scale down by half a point.
+    public static func fit(_ size: CritterSize, barHeight: Double) -> CritterLayout {
+        var points = size.points
+        while points > 1.0 {
+            for lift in [fullLift, tightLift] where Double(bodyRows + lift) * points <= barHeight {
+                return CritterLayout(points: points, lift: lift)
+            }
+            points -= 0.5
+        }
+        let lift = Double(bodyRows + fullLift) <= barHeight ? fullLift : tightLift
+        return CritterLayout(points: 1.0, lift: lift)
+    }
+}

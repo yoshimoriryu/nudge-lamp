@@ -27,10 +27,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var notificationPermission: Permission = .notAsked
     /// Reserves room for the critter so the count still lays out to its right.
     private var critterPlaceholder = NSImage()
-    /// Points per sprite pixel. Notched displays have a 38pt menu bar, so the critter grows there.
-    /// 1.5pt is 3 device pixels on Retina, which keeps the pixel art sharp.
-    private var pixelPoints: CGFloat {
-        (statusItem.button?.bounds.height ?? 0) >= 30 ? 1.5 : 1
+    private var critterSize: CritterSize {
+        get { CritterSize(rawValue: defaults.string(forKey: "size") ?? "") ?? .medium }
+        set { defaults.set(newValue.rawValue, forKey: "size") }
+    }
+
+    /// The chosen size, shrunk if needed to fit this menu bar. The status item button is only
+    /// 22 pt tall, but its window spans the whole menu bar (38 pt on a notched display),
+    /// and the critter may use all of it.
+    private var critterLayout: CritterLayout {
+        let barHeight = statusItem.button?.window?.frame.height ?? NSStatusBar.system.thickness
+        return CritterLayout.fit(critterSize, barHeight: barHeight)
     }
 
     private let defaults = UserDefaults.standard
@@ -119,13 +126,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let scale = button.window?.backingScaleFactor ?? 2
         let appearance = button.effectiveAppearance
-        let key = "\(appearance.name.rawValue)@\(scale)x\(pixelPoints)"
+        let layout = critterLayout
+        let key = "\(appearance.name.rawValue)@\(scale)x\(layout.points)+\(layout.lift)"
         if key != poseImagesKey {
             poseImages.removeAll()
             poseImagesKey = key
         }
         if poseImages[pose] == nil {
-            poseImages[pose] = CritterRenderer.cgImage(pose, pixelScale: scale * pixelPoints, appearance: appearance)
+            poseImages[pose] = CritterRenderer.cgImage(
+                pose, pixelScale: scale * layout.points, lift: layout.lift, appearance: appearance
+            )
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -182,11 +192,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         let summary = LampSummary(views)
         lampState = summary.state
+        let layout = critterLayout
+        let critterWidth = CGFloat(CritterRenderer.columns) * layout.points
+        let critterHeight = CGFloat(layout.height)
         if characterOn {
-            let size = NSSize(
-                width: CGFloat(CritterRenderer.columns) * pixelPoints,
-                height: CGFloat(CritterRenderer.rows) * pixelPoints
-            )
+            // The placeholder only reserves width. Keeping it no taller than the button stops
+            // the cell from scaling it, which would also shrink the reserved width.
+            let size = NSSize(width: critterWidth, height: min(critterHeight, button.bounds.height))
             if critterPlaceholder.size != size { critterPlaceholder = NSImage(size: size) }
             if button.image !== critterPlaceholder { button.image = critterPlaceholder }
         } else {
@@ -200,8 +212,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         critterLayer.isHidden = !characterOn
         if characterOn, let cell = button.cell as? NSButtonCell {
-            let frame = cell.imageRect(forBounds: button.bounds)
+            // Center the critter on the button; it may extend above and below it into the bar.
+            let slot = cell.imageRect(forBounds: button.bounds)
+            let frame = NSRect(
+                x: slot.minX,
+                y: ((button.bounds.height - critterHeight) / 2).rounded(),
+                width: critterWidth,
+                height: critterHeight
+            )
             if critterLayer.frame != frame {
+                let bar = button.window?.frame.height ?? 0
+                NSLog("Nudge Lamp layout: size=\(critterSize.rawValue) points=\(layout.points) lift=\(layout.lift) frame=\(NSStringFromRect(frame)) button=\(NSStringFromRect(button.bounds)) bar=\(bar)")
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 critterLayer.frame = frame
@@ -326,6 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(soundMenu("Sound When Finished", key: Self.finishedSoundKey))
         menu.addItem(toggleItem("Show Banners", on: bannersOn, #selector(toggleBanners)))
         menu.addItem(toggleItem("Animated Critter", on: characterOn, #selector(toggleCharacter)))
+        menu.addItem(sizeMenu())
         menu.addItem(toggleItem("Open at Login", on: SMAppService.mainApp.status == .enabled, #selector(toggleLogin)))
         menu.addItem(.separator())
         menu.addItem(actionItem("Quit Nudge Lamp", #selector(quit), key: "q"))
@@ -402,6 +424,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         play(pair[1])
     }
     @objc private func toggleBanners() { bannersOn.toggle() }
+
+    private func sizeMenu() -> NSMenuItem {
+        let item = NSMenuItem(title: "Size", action: nil, keyEquivalent: "")
+        item.subtitle = critterSize.title
+        let submenu = NSMenu()
+        submenu.delegate = self
+        submenu.autoenablesItems = false
+        for size in CritterSize.allCases {
+            let choice = NSMenuItem(title: size.title, action: #selector(chooseSize(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = size.rawValue
+            choice.state = size == critterSize ? .on : .off
+            submenu.addItem(choice)
+        }
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func chooseSize(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let size = CritterSize(rawValue: raw) else { return }
+        critterSize = size
+        lastPose = nil
+        updateButton()
+    }
 
     @objc private func toggleCharacter() {
         characterOn.toggle()

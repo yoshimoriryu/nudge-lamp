@@ -18,6 +18,7 @@ enum DocRenderer {
             try writeGIF(frames, to: directory.appendingPathComponent("\(mood).gif"))
         }
         try writeSheet(to: directory.appendingPathComponent("sheet.png"))
+        try writeSheet(to: directory.appendingPathComponent("sheet-tight.png"), lift: CritterLayout.tightLift)
         try writeShowcase(to: directory.appendingPathComponent("showcase.gif"))
     }
 
@@ -69,8 +70,10 @@ enum DocRenderer {
         }
     }
 
-    private static func writeSheet(to url: URL) throws {
-        let (w, h) = cellSize
+    /// - Parameter lift: jump headroom; `tightLift` shows the Extra Large layout on a 38 pt bar.
+    private static func writeSheet(to url: URL, lift: Int = CritterLayout.fullLift) throws {
+        let w = cellSize.0
+        let h = Int(CGFloat(CritterLayout.bodyRows + lift) * scale)
         let variants = CritterVariant.allCases
         let samples = Array(stride(from: 0, to: 32, by: 3))
         let image = bitmap(width: w * samples.count, height: h * variants.count) {
@@ -80,7 +83,7 @@ enum DocRenderer {
                 for (column, t) in samples.enumerated() {
                     // Bitmap contexts are not flipped, so row 0 goes at the top.
                     let y = (variants.count - 1 - row) * h
-                    CritterRenderer.image(variant.pose(at: t), scale: scale)
+                    CritterRenderer.image(variant.pose(at: t), scale: scale, lift: lift)
                         .draw(in: NSRect(x: column * w, y: y, width: w, height: h))
                 }
             }
