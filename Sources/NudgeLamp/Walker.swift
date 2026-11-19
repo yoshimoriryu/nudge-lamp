@@ -1,14 +1,18 @@
 import AppKit
 
-/// A small see-through window that carries the critter along the menu bar.
-/// It sits above the menu bar and its icons but below open menus and banners,
-/// and it covers only the sprite, so the rest of the bar keeps working.
+/// A see-through strip over the menu bar that carries the walking critter.
+///
+/// The strip stays put and only the sprite layer moves inside it, which costs far less than
+/// moving a window every frame. It sits above the menu bar and its icons but below open menus
+/// and banners. Clicks pass straight through, except while the pointer is over the critter.
 @MainActor
 final class Walker {
     var onClick: () -> Void = {}
 
     private let panel: NSPanel
+    private let view = ClickView()
     private let sprite = CALayer()
+    private var shown: CGImage?
 
     init() {
         panel = NSPanel(
@@ -26,26 +30,34 @@ final class Walker {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.becomesKeyOnlyIfNeeded = true
+        panel.ignoresMouseEvents = true
 
-        let view = ClickView()
         view.wantsLayer = true
-        view.onClick = { [weak self] in self?.onClick() }
+        view.onClick = { [weak self] point in
+            guard let self, self.sprite.frame.contains(point) else { return }
+            self.onClick()
+        }
         panel.contentView = view
         sprite.magnificationFilter = .nearest
         view.layer?.addSublayer(sprite)
     }
 
-    var isShown: Bool { panel.isVisible }
-
-    /// Shows `image` in `frame`, given in screen points.
-    func show(_ image: CGImage?, frame: NSRect, scale: CGFloat) {
-        if panel.frame != frame { panel.setFrame(frame, display: false) }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        sprite.frame = NSRect(origin: .zero, size: frame.size)
-        sprite.contentsScale = scale
-        sprite.contents = image
-        CATransaction.commit()
+    /// Shows `image` at `frame` inside the strip `track`, both in screen points.
+    /// Only what changed goes to the window server.
+    func show(_ image: CGImage?, frame: NSRect, track: NSRect) {
+        if panel.frame != track { panel.setFrame(track, display: false) }
+        let local = frame.offsetBy(dx: -track.minX, dy: -track.minY)
+        if sprite.frame != local || image !== shown {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            sprite.frame = local
+            if image !== shown { sprite.contents = image }
+            CATransaction.commit()
+            shown = image
+        }
+        // Catch clicks only while the pointer is over the critter.
+        let over = frame.contains(NSEvent.mouseLocation)
+        if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
@@ -55,7 +67,9 @@ final class Walker {
 }
 
 private final class ClickView: NSView {
-    var onClick: () -> Void = {}
+    var onClick: (NSPoint) -> Void = { _ in }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { onClick() }
+    override func mouseDown(with event: NSEvent) {
+        onClick(convert(event.locationInWindow, from: nil))
+    }
 }

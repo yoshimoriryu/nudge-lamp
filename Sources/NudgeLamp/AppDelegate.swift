@@ -14,6 +14,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var animationTimer: Timer?
     private var frame = 0
     private var animationTick = 0
+    private var ttys: [Int32: String?] = [:]
+    private var focusAskedAt = Date.distantPast
+    private var focusTerminal: ScriptableTerminal?
+    private var focusTab: String?
+    private static let anyInput = CGEventType(rawValue: ~0)!
     private var menuIsOpen = false
     private var openSubmenus = 0
     private var lampState: LampState = .idle
@@ -151,7 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Advances the critter one frame, in its slot or out on a walk.
     /// Skips the slot redraw when its pose did not change.
     private func animate() {
-        guard characterOn, let button = statusItem.button else {
+        guard characterOn, statusItem.button != nil else {
             walker.hide()
             return
         }
@@ -166,29 +171,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        critterLayer.contentsScale = button.window?.backingScaleFactor ?? 2
         critterLayer.contents = image(for: pose)
         CATransaction.commit()
     }
 
-    /// The cached image of a pose for the current appearance, screen scale and size.
+    /// The cached image of a pose, one image pixel per sprite pixel. The layers scale it up with
+    /// nearest-neighbour filtering, which keeps it crisp at every size, so a 23 by 17 pixel image
+    /// serves all sizes and screens. Only the appearance and the jump headroom change the pixels.
     private func image(for pose: CritterPose) -> CGImage? {
         guard let button = statusItem.button else { return nil }
-        let scale = button.window?.backingScaleFactor ?? 2
         let appearance = button.effectiveAppearance
-        let layout = critterLayout
-        let key = "\(appearance.name.rawValue)@\(scale)x\(layout.points)+\(layout.lift)"
-        if key != poseImagesKey {
+        let lift = critterLayout.lift
+        let key = "\(appearance.name.rawValue)+\(lift)"
+        if key != poseImagesKey || poseImages.count >= Self.maxPoseImages {
             poseImages.removeAll()
             poseImagesKey = key
         }
         if let image = poseImages[pose] { return image }
-        let image = CritterRenderer.cgImage(
-            pose, pixelScale: scale * layout.points, lift: layout.lift, appearance: appearance
-        )
+        let image = CritterRenderer.cgImage(pose, pixelScale: 1, lift: lift, appearance: appearance)
         poseImages[pose] = image
         return image
     }
+
+    /// Every pose there is fits well under this; it only bounds memory if that ever changes.
+    private static let maxPoseImages = 1024
 
     /// Moves the walking critter one frame. `away` is true while it is out of its slot,
     /// and `homecoming` for a moment after it plugs back in.
@@ -224,7 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         walker.show(
             image(for: frame.pose),
             frame: NSRect(x: x, y: slot.minY, width: slot.width, height: slot.height),
-            scale: scale
+            track: NSRect(x: screen.frame.minX, y: slot.minY, width: screen.frame.width, height: slot.height)
         )
         return (true, false)
     }
@@ -262,11 +268,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Asking iTerm2 for the focused tab is an Apple Event round trip. Only ask when the answer
         // can change something: a session needs you, or a session's status just changed.
         let previous = Dictionary(views.map { ($0.record.sessionId, $0) }, uniquingKeysWith: { a, _ in a })
-        let focusMatters = records.contains { record in
-            guard let old = previous[record.sessionId] else { return false }
-            return old.state.needsYou || old.record.status != record.status
+        var focusMatters = false, statusChanged = false
+        for record in records {
+            guard let old = previous[record.sessionId] else { continue }
+            if old.record.status != record.status { statusChanged = true }
+            if old.state.needsYou || statusChanged { focusMatters = true }
         }
-        let focused = focusMatters ? focusedSessionIds(records) : []
+        let focused = focusMatters ? focusedSessionIds(records, urgent: statusChanged) : []
 
         let update = tracker.update(records, now: Date(), focused: focused)
         views = update.views
@@ -281,9 +289,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if menuIsOpen && openSubmenus == 0 { rebuildMenu() }
     }
 
-    private func focusedSessionIds(_ records: [SessionRecord]) -> Set<String> {
-        guard let tty = ScriptableTerminal.frontmost?.focusedTTY() else { return [] }
-        return Set(records.filter { ProcessLookup.tty(of: $0.pid) == tty }.map(\.sessionId))
+    private func focusedSessionIds(_ records: [SessionRecord], urgent: Bool) -> Set<String> {
+        guard let tty = focusedTTY(urgent: urgent) else { return [] }
+        let live = Set(records.map(\.pid))
+        ttys = ttys.filter { live.contains($0.key) }
+        return Set(records.filter { terminal(of: $0.pid) == tty }.map(\.sessionId))
+    }
+
+    /// A session's terminal. A process keeps its terminal for life, so it is looked up once.
+    private func terminal(of pid: Int32) -> String? {
+        if let tty = ttys[pid] { return tty }
+        let tty = ProcessLookup.tty(of: pid)
+        ttys[pid] = tty
+        return tty
+    }
+
+    /// The tab in front of the frontmost terminal. Asking is an Apple Event round trip, so the
+    /// answer is reused until the keyboard or mouse has been used, since the tab cannot change
+    /// without them. Even then it is asked at most every 2 seconds, unless a status just changed.
+    private func focusedTTY(urgent: Bool) -> String? {
+        guard let terminal = ScriptableTerminal.frontmost else {
+            focusAskedAt = .distantPast
+            return nil
+        }
+        let sinceAsked = Date().timeIntervalSince(focusAskedAt)
+        let sinceInput = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: Self.anyInput)
+        let touched = sinceInput < sinceAsked
+        if terminal != focusTerminal || focusAskedAt == .distantPast || (touched && (urgent || sinceAsked >= 2)) {
+            focusAskedAt = Date()
+            focusTerminal = terminal
+            focusTab = terminal.focusedTTY()
+        }
+        return focusTab
     }
 
     /// Posts a banner per event and plays one sound. A waiting session wins over a finished one,

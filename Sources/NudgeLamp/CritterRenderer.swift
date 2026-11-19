@@ -26,7 +26,6 @@ enum CritterRenderer {
     private static let red = NSColor.systemRed
     private static let yellow = NSColor.systemYellow
     private static let sweat = rgb(0x7DD3FC)
-    private static let unlitGrey = rgb(0x8E949E)
 
     /// Glass fill and outline for each bulb color.
     private static func glass(_ bulb: CritterPose.Bulb) -> (fill: NSColor, rim: NSColor) {
@@ -101,9 +100,10 @@ enum CritterRenderer {
         let oy = lift + max(pose.dy, -lift)
         var (fill, rim) = glass(pose.bulb)
         if pose.unlit {
-            // Unplugged: wash the glass toward grey so it reads as switched off but keeps its hue.
-            fill = fill.blended(withFraction: 0.35, of: unlitGrey) ?? fill
-            rim = rim.blended(withFraction: 0.35, of: unlitGrey) ?? rim
+            // Unplugged: a slightly darker shade of the same color, so it reads as switched off
+            // without going grey. With no halo and a faint highlight, the difference is clear.
+            fill = fill.blended(withFraction: 0.16, of: .black) ?? fill
+            rim = rim.blended(withFraction: 0.1, of: .black) ?? rim
         }
 
         if pose.socketOnly {

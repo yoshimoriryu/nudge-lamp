@@ -271,7 +271,7 @@ public struct Wanderer: Sendable {
     }
 
     /// Arms flailing, feet a blur, eyes wide and a drop of sweat flying off.
-    static func panic(_ t: Int, facing: Int, bulb: CritterPose.Bulb) -> CritterPose {
+    public static func panic(_ t: Int, facing: Int, bulb: CritterPose.Bulb) -> CritterPose {
         var p = CritterPose()
         let up = t % 2 == 0
         p.leftFootUp = up
@@ -298,7 +298,7 @@ public struct Wanderer: Sendable {
         return p
     }
 
-    static func activity(_ activity: Activity, _ t: Int, bulb: CritterPose.Bulb) -> CritterPose {
+    public static func activity(_ activity: Activity, _ t: Int, bulb: CritterPose.Bulb) -> CritterPose {
         var p = CritterPose()
         p.bulb = bulb
         switch activity {

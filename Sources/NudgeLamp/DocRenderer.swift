@@ -21,6 +21,8 @@ enum DocRenderer {
         try writeSheet(to: directory.appendingPathComponent("sheet-tight.png"), lift: CritterLayout.tightLift)
         try writeShowcase(to: directory.appendingPathComponent("showcase.gif"))
         try writeWalk(to: directory.appendingPathComponent("walk.gif"))
+        try writeTricks(to: directory.appendingPathComponent("tricks.gif"))
+        try writeClick(to: directory.appendingPathComponent("click.gif"))
     }
 
     /// The critter hops out, strolls along a strip of menu bar, then panics and dashes home.
@@ -72,27 +74,50 @@ enum DocRenderer {
         let moods: [(CritterMood, String)] = [
             (.blocked, "Needs you"), (.finished, "Finished"), (.working, "Working"), (.idle, "Idle"),
         ]
+        try writeCells(moods.map { mood, label in
+            (label, { t in
+                CritterVariant.variants(for: mood)[t / 32].pose(at: t % 32).plugged(mood: mood, tick: t, homecoming: false)
+            })
+        }, frames: 32 * 3, to: url)
+    }
+
+    /// What the bulb gets up to when it stops on a walk, the way it looks out on the bar.
+    private static func writeTricks(to url: URL) throws {
+        let tricks: [(Wanderer.Activity, String)] = [
+            (.lookAround, "Looks around"), (.wave, "Waves"), (.stretch, "Stretches"), (.nap, "Naps"),
+        ]
+        try writeCells(tricks.map { activity, label in
+            (label, { t in
+                var pose = Wanderer.activity(activity, t, bulb: .cream)
+                pose.unlit = true
+                return pose
+            })
+        }, frames: 48, to: url)
+    }
+
+    /// Captioned cells side by side, each animating its own pose.
+    private static func writeCells(
+        _ cells: [(label: String, pose: (Int) -> CritterPose)], frames count: Int, to url: URL
+    ) throws {
         let big: CGFloat = 8
         let cellW = Int(CGFloat(CritterRenderer.columns) * big) + 24
         let spriteH = Int(CGFloat(CritterRenderer.rows) * big)
         let captionH = 40
-        let width = cellW * moods.count, height = spriteH + captionH + 12
+        let width = cellW * cells.count, height = spriteH + captionH + 12
         let caption: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 22, weight: .semibold),
             .foregroundColor: NSColor(white: 0.85, alpha: 1),
         ]
         var frames: [CGImage] = []
-        for t in 0..<(32 * 3) {
+        for t in 0..<count {
             let image = bitmap(width: width, height: height) {
                 background.setFill()
                 NSRect(x: 0, y: 0, width: width, height: height).fill()
-                for (i, (mood, label)) in moods.enumerated() {
-                    let variants = CritterVariant.variants(for: mood)
-                    let pose = variants[t / 32].pose(at: t % 32).plugged(mood: mood, tick: t, homecoming: false)
+                for (i, cell) in cells.enumerated() {
                     let x = i * cellW + 12
-                    CritterRenderer.image(pose, scale: big)
+                    CritterRenderer.image(cell.pose(t), scale: big)
                         .draw(in: NSRect(x: x, y: captionH, width: cellW - 24, height: spriteH))
-                    let text = NSAttributedString(string: label, attributes: caption)
+                    let text = NSAttributedString(string: cell.label, attributes: caption)
                     let size = text.size()
                     text.draw(at: NSPoint(x: CGFloat(i * cellW) + (CGFloat(cellW) - size.width) / 2, y: 10))
                 }
@@ -100,6 +125,98 @@ enum DocRenderer {
             if let image { frames.append(image) }
         }
         try writeGIF(frames, to: url)
+    }
+
+    /// A pointer clicks the strolling bulb. It panics, dashes home, plugs in and shines.
+    private static func writeClick(to url: URL) throws {
+        let points = 4.0
+        let spriteW = Double(CritterRenderer.columns) * points
+        let spriteH = Double(CritterRenderer.rows) * points
+        let width = 560, height = Int(spriteH) + 12
+        let home = Double(width) - spriteW - 12
+        let track = WanderTrack(screenMinX: 0, screenMaxX: Double(width), notch: nil, spriteWidth: spriteW)
+        var wanderer = Wanderer(timing: .init(outing: 400...400, rest: 400...400, pause: 30...30, nap: 30...30))
+        var rng = Fixed(state: 3)
+        var frames: [CGImage] = []
+        var clickAt: Int?
+        var pointer = NSPoint(x: Double(width) - 30, y: -40)
+        var clickedSpot = NSPoint.zero
+        for t in 0..<150 {
+            // Walk out until well clear of home, then the pointer comes in for a click.
+            let calm = clickAt.map { t < $0 } ?? true
+            let frame = wanderer.step(
+                mayWander: calm, mood: .working, home: home, track: track, points: points, using: &rng
+            )
+            if clickAt == nil, frame.away, home - frame.x > 260 { clickAt = t + 12 }
+            let target = NSPoint(x: frame.x + spriteW * 0.55, y: 6 + spriteH * 0.45)
+            if let clickAt {
+                if t < clickAt {
+                    // Glide toward the bulb, a bit closer each frame.
+                    pointer.x += (target.x - pointer.x) * 0.35
+                    pointer.y += (target.y - pointer.y) * 0.35
+                    clickedSpot = pointer
+                } else {
+                    pointer = clickedSpot
+                }
+            }
+            let pressed = clickAt.map { t == $0 || t == $0 + 1 } ?? false
+            let image = bitmap(width: width, height: height) {
+                background.setFill()
+                NSRect(x: 0, y: 0, width: width, height: height).fill()
+                let slot = NSRect(x: home, y: 6, width: spriteW, height: spriteH)
+                if frame.away {
+                    CritterRenderer.image(.socket, scale: points).draw(in: slot)
+                    CritterRenderer.image(frame.pose, scale: points)
+                        .draw(in: NSRect(x: frame.x.rounded(), y: 6, width: spriteW, height: spriteH))
+                } else {
+                    let home = CritterVariant.type.pose(at: t)
+                        .plugged(mood: .working, tick: t, homecoming: frame.homecoming)
+                    CritterRenderer.image(home, scale: points).draw(in: slot)
+                }
+                if clickAt != nil { drawPointer(at: pointer, pressed: pressed) }
+            }
+            if let image { frames.append(image) }
+        }
+        try writeGIF(frames, to: url)
+    }
+
+    /// A chunky pixel arrow with its tip at `tip`, in the same 8-bit style as the bulb.
+    private static func drawPointer(at tip: NSPoint, pressed: Bool) {
+        let rows = [
+            "X.........",
+            "XX........",
+            "XWX.......",
+            "XWWX......",
+            "XWWWX.....",
+            "XWWWWX....",
+            "XWWWWWX...",
+            "XWWWWWWX..",
+            "XWWWWXXXX.",
+            "XWXWWX....",
+            "XX.XWWX...",
+            "X...XWWX..",
+            ".....XX...",
+        ]
+        let px: CGFloat = 3
+        let shrink: CGFloat = pressed ? 1 : 0
+        for (r, row) in rows.enumerated() {
+            for (c, ch) in row.enumerated() where ch != "." {
+                (ch == "X" ? NSColor.black : NSColor.white).setFill()
+                // Bitmap y grows upward; the arrow's tip is its top-left pixel.
+                NSRect(
+                    x: tip.x + CGFloat(c) * px + shrink,
+                    y: tip.y - CGFloat(r + 1) * px - shrink,
+                    width: px, height: px
+                ).fill()
+            }
+        }
+        if pressed {
+            // A little click burst around the tip.
+            NSColor.white.setFill()
+            for (dx, dy) in [(-9.0, 3.0), (-3.0, 9.0), (-9.0, -6.0), (6.0, 9.0)] {
+                NSRect(x: tip.x + dx, y: tip.y + dy, width: 3, height: 3).fill()
+            }
+        }
     }
 
     private static var cellSize: (Int, Int) {
