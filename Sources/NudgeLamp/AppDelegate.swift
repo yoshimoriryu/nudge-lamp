@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func focusedSessionIds(_ records: [SessionRecord]) -> Set<String> {
-        guard let tty = ITerm.focusedTTY() else { return [] }
+        guard let tty = ScriptableTerminal.frontmost?.focusedTTY() else { return [] }
         return Set(records.filter { ProcessLookup.tty(of: $0.pid) == tty }.map(\.sessionId))
     }
 
@@ -243,10 +243,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .notAsked: items.append(actionItem("Allow Notifications…", #selector(askNotifications)))
         case .denied, .unavailable: items.append(actionItem("Turn On Notifications in Settings…", #selector(openNotificationSettings)))
         }
-        switch Doctor.iTermControl() {
-        case .notAsked: items.append(actionItem("Allow iTerm2 Tab Switching…", #selector(askITermControl)))
-        case .denied: items.append(actionItem("Allow iTerm2 Tab Switching in Settings…", #selector(openAutomationSettings)))
-        default: break
+        // Only running terminals report a permission state; the rest show nothing.
+        for terminal in ScriptableTerminal.allCases {
+            switch Doctor.control(of: terminal) {
+            case .notAsked:
+                let item = actionItem("Allow \(terminal.name) Tab Switching…", #selector(askTerminalControl(_:)))
+                item.representedObject = terminal.bundleID
+                items.append(item)
+            case .denied:
+                items.append(actionItem("Allow \(terminal.name) Tab Switching in Settings…", #selector(openAutomationSettings)))
+            default:
+                break
+            }
         }
         return items
     }
@@ -298,7 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.image = StatusIcon.image(for: view.state, frame: frame, pointSize: 13)
             item.subtitle = "\(describe(view)), \(Self.duration(since: record.statusChangedAt, now: now))  ·  \(Self.shortPath(record.cwd))"
             item.representedObject = record.pid
-            item.toolTip = "Click to open this session in iTerm2"
+            item.toolTip = "Click to open this session in its terminal"
             menu.addItem(item)
         }
 
@@ -359,11 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let record = views.first(where: { $0.record.pid == pid })?.record {
             tracker.acknowledge(sessionId: record.sessionId)
         }
-        if let tty = ProcessLookup.tty(of: pid), ITerm.reveal(tty: tty) {
-            // Revealed the exact tab.
-        } else {
-            ITerm.activate()
-        }
+        Terminals.reveal(pid: pid)
         refresh()
     }
 
@@ -381,9 +385,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(Doctor.notificationSettingsURL)
     }
 
-    @objc private func askITermControl() {
+    @objc private func askTerminalControl(_ sender: NSMenuItem) {
+        guard let terminal = ScriptableTerminal(bundleID: sender.representedObject as? String) else { return }
         // The consent prompt blocks the calling thread until answered, so keep it off the main thread.
-        Task.detached { _ = Doctor.iTermControl(askIfNeeded: true) }
+        Task.detached { _ = Doctor.control(of: terminal, askIfNeeded: true) }
     }
 
     @objc private func openAutomationSettings() {

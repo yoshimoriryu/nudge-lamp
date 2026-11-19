@@ -121,12 +121,22 @@ public enum SessionFolder {
 public enum ProcessLookup {
     /// The controlling terminal of a process, for example "/dev/ttys003".
     public static func tty(of pid: Int32) -> String? {
+        guard let info = kinfo(pid) else { return nil }
+        let dev = info.kp_eproc.e_tdev
+        guard dev != -1, let name = devname(dev, mode_t(S_IFCHR)) else { return nil }
+        return "/dev/" + String(cString: name)
+    }
+
+    /// The parent process ID, or nil when the process is gone.
+    public static func parent(of pid: Int32) -> Int32? {
+        kinfo(pid)?.kp_eproc.e_ppid
+    }
+
+    private static func kinfo(_ pid: Int32) -> kinfo_proc? {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return nil }
-        let dev = info.kp_eproc.e_tdev
-        guard dev != -1, let name = devname(dev, mode_t(S_IFCHR)) else { return nil }
-        return "/dev/" + String(cString: name)
+        return info
     }
 }

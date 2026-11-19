@@ -29,10 +29,10 @@ enum Doctor {
         string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
     )!
 
-    /// Whether Nudge Lamp may send Apple Events to iTerm2.
+    /// Whether Nudge Lamp may send Apple Events to `terminal`.
     /// With `askIfNeeded`, macOS shows its consent prompt and this call blocks until the user answers.
-    static func iTermControl(askIfNeeded: Bool = false) -> Permission {
-        let target = NSAppleEventDescriptor(bundleIdentifier: ITerm.bundleID)
+    static func control(of terminal: ScriptableTerminal, askIfNeeded: Bool = false) -> Permission {
+        let target = NSAppleEventDescriptor(bundleIdentifier: terminal.bundleID)
         guard let desc = target.aeDesc else { return .unavailable("unknown") }
         let wildcard = FourCharCode(typeWildCard)
         let status = AEDeterminePermissionToAutomateTarget(desc, wildcard, wildcard, askIfNeeded)
@@ -40,7 +40,7 @@ enum Doctor {
         case noErr: return .allowed
         case -1743: return .denied        // errAEEventNotPermitted
         case -1744: return .notAsked      // errAEEventWouldRequireUserConsent
-        case -600: return .unavailable("iTerm2 is not running")   // procNotFound
+        case -600: return .unavailable("\(terminal.name) is not running")   // procNotFound
         default: return .unavailable("error \(status)")
         }
     }
@@ -90,7 +90,7 @@ enum Doctor {
             ("Nudge Lamp", version),
             ("Claude Code CLI", claude?.path ?? "not found"),
             ("Sessions", sessions),
-            ("iTerm2 control", iTermControl().label),
+        ] + ScriptableTerminal.allCases.map { ("\($0.name) control", control(of: $0).label) } + [
             ("Notifications", await notifications().label),
             ("Open at login", loginItem),
         ]

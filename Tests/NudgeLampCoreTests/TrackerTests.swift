@@ -279,3 +279,14 @@ private struct SeededRandom: RandomNumberGenerator {
         #expect(seen.isSubset(of: Set(CritterVariant.variants(for: .working))))
     }
 }
+
+@Suite struct ProcessLookupTests {
+    @Test func parentMatchesGetppid() {
+        #expect(ProcessLookup.parent(of: getpid()) == getppid())
+    }
+
+    @Test func goneProcessHasNoParentOrTty() {
+        #expect(ProcessLookup.parent(of: 99_999_999) == nil)
+        #expect(ProcessLookup.tty(of: 99_999_999) == nil)
+    }
+}
