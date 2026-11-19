@@ -5,13 +5,13 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>AgentLamp</string>
+	<string>NudgeLamp</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.yoshimoriryu.agentlamp</string>
+	<string>io.github.yoshimoriryu.nudgelamp</string>
 	<key>CFBundleName</key>
-	<string>Agent Lamp</string>
+	<string>Nudge Lamp</string>
 	<key>CFBundleDisplayName</key>
-	<string>Agent Lamp</string>
+	<string>Nudge Lamp</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -23,6 +23,6 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Agent Lamp asks iTerm2 which tab you are looking at, and switches to the tab of a session you click.</string>
+	<string>Nudge Lamp asks iTerm2 which tab you are looking at, and switches to the tab of a session you click.</string>
 </dict>
 </plist>

@@ -1,23 +1,20 @@
 import Foundation
 
-/// One Claude Code session, as written by Claude Code to `~/.claude/sessions/<pid>.json`.
-///
-/// The file format is internal to Claude Code and undocumented, so every field
-/// except `pid`, `sessionId` and `cwd` is optional.
+/// One live Claude Code session, as reported by `claude agents --json`.
 public struct SessionRecord: Decodable, Equatable, Sendable {
     public var pid: Int32
     public var sessionId: String
     public var cwd: String
     public var name: String?
-    /// "interactive", "bg", "daemon" or "daemon-worker".
+    /// "interactive" or "background".
     public var kind: String?
-    /// "busy", "shell", "idle" or "waiting".
+    /// "busy", "waiting" or "idle". Older builds also report "shell" while a shell command runs.
     public var status: String?
-    /// Why a "waiting" session is blocked, for example a permission dialog.
+    /// Why a "waiting" session is blocked, for example "permission prompt".
     public var waitingFor: String?
     /// Milliseconds since 1970.
     public var startedAt: Double?
-    /// Milliseconds since 1970.
+    /// Milliseconds since 1970. Taken from the session file's modification time, when known.
     public var statusUpdatedAt: Double?
 
     public init(
@@ -55,9 +52,9 @@ public struct SessionRecord: Decodable, Equatable, Sendable {
         startedAt.map(Date.init(milliseconds:))
     }
 
-    /// Sessions with a terminal the user can answer in. Daemon processes are skipped.
+    /// Sessions the user can answer. Internal daemon processes are skipped.
     public var isUserFacing: Bool {
-        kind == nil || kind == "interactive" || kind == "bg"
+        kind == nil || kind == "interactive" || kind == "background" || kind == "bg"
     }
 }
 

@@ -1,17 +1,41 @@
-import AgentLampCore
 import AppKit
+import NudgeLampCore
 
 /// Draws a `CritterPose` as pixel art on a grid of `columns` by `rows` sprite pixels.
+/// The critter is a light bulb with a face, thin metal arms and a screw base for a body.
 enum CritterRenderer {
     static let columns = 23
     static let rows = 17
 
-    private static let body = NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 1)    // #D97757
-    private static let shade = NSColor(srgbRed: 0.714, green: 0.373, blue: 0.259, alpha: 1)   // #B65F42
-    private static let foot = NSColor(srgbRed: 0.600, green: 0.300, blue: 0.200, alpha: 1)    // #994D33
-    private static let ink = NSColor(srgbRed: 0.145, green: 0.098, blue: 0.078, alpha: 1)     // #251914
+    private static func rgb(_ hex: UInt32) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+
+    private static let ink = rgb(0x1F2328)
+    private static let metalLight = rgb(0xC5CAD3)
+    private static let metalDark = rgb(0x8C929C)
+    private static let contact = rgb(0x5B6069)
+    private static let foot = rgb(0x4A4F57)
+    private static let shine = NSColor(white: 1, alpha: 0.85)
     private static let red = NSColor.systemRed
     private static let yellow = NSColor.systemYellow
+
+    /// Glass fill and outline for each bulb color.
+    private static func glass(_ bulb: CritterPose.Bulb) -> (fill: NSColor, rim: NSColor) {
+        switch bulb {
+        case .off: (rgb(0xC9CED6), rgb(0x8E949E))
+        case .green: (rgb(0x4ADE80), rgb(0x15803D))
+        case .mint: (rgb(0xA7F3C4), rgb(0x15803D))
+        case .red: (rgb(0xFF5A5A), rgb(0xB91C1C))
+        case .white: (rgb(0xFFB3AD), rgb(0xB91C1C))
+        case .amber: (rgb(0xFCD34D), rgb(0xB45309))
+        }
+    }
 
     static func image(_ pose: CritterPose, scale: CGFloat = 1) -> NSImage {
         let size = NSSize(width: CGFloat(columns) * scale, height: CGFloat(rows) * scale)
@@ -55,7 +79,7 @@ enum CritterRenderer {
         let context = NSGraphicsContext.current?.cgContext
         context?.saveGState()
         defer { context?.restoreGState() }
-        if pose.dimmed { context?.setAlpha(0.7) }
+        if pose.dimmed { context?.setAlpha(0.75) }
 
         func px(_ x: Int, _ y: Int, _ w: Int = 1, _ h: Int = 1, _ color: NSColor) {
             color.setFill()
@@ -65,52 +89,48 @@ enum CritterRenderer {
             )).fill()
         }
 
-        // Sprite origin: body spans columns ox...ox+11 and rows oy+3...oy+10.
+        // Sprite origin: the glass spans columns ox...ox+9 and rows oy...oy+8,
+        // the screw base rows oy+9...oy+12, and the feet row oy+13.
         let ox = 4 + pose.dx
-        let oy = 4 + pose.dy
+        let oy = 3 + pose.dy
+        let (fill, rim) = glass(pose.bulb)
 
-        // Antenna
-        let tipColor: NSColor = switch pose.tip {
-        case .dim: shade
-        case .glow: NSColor(srgbRed: 0.941, green: 0.635, blue: 0.498, alpha: 1)
-        case .bright: NSColor(srgbRed: 1.0, green: 0.890, blue: 0.827, alpha: 1)
-        case .red: red
-        case .yellow: yellow
-        }
-        if pose.antennaDroop {
-            px(ox + 5, oy + 2, 1, 1, shade)
-            px(ox + 6, oy + 1, 2, 1, shade)
-            px(ox + 8, oy + 1, 2, 2, tipColor)
-        } else {
-            let lean = max(-1, min(1, pose.antennaLean))
-            px(ox + 5, oy + 2, 1, 1, shade)
-            px(ox + 5 + lean, oy + 1, 1, 1, shade)
-            px(ox + 5 + lean, oy - 1, 2, 2, tipColor)
-        }
+        // Glass: draw the rim shape, then fill it one pixel in.
+        px(ox + 3, oy, 4, 1, rim)
+        px(ox + 1, oy + 1, 8, 1, rim)
+        px(ox, oy + 2, 10, 5, rim)
+        px(ox + 1, oy + 7, 8, 1, rim)
+        px(ox + 2, oy + 8, 6, 1, rim)
+        px(ox + 3, oy + 1, 4, 1, fill)
+        px(ox + 1, oy + 2, 8, 5, fill)
+        px(ox + 2, oy + 7, 6, 1, fill)
+        px(ox + 3, oy + 8, 4, 1, fill)
+        px(ox + 2, oy + 2, 1, 2, shine)
 
-        // Body with clipped corners and a darker bottom row
-        px(ox + 1, oy + 3, 10, 1, body)
-        px(ox, oy + 4, 12, 6, body)
-        px(ox + 1, oy + 10, 10, 1, shade)
+        // Screw base and contact
+        px(ox + 2, oy + 9, 6, 1, metalLight)
+        px(ox + 2, oy + 10, 6, 1, metalDark)
+        px(ox + 2, oy + 11, 6, 1, metalLight)
+        px(ox + 3, oy + 12, 4, 1, contact)
 
-        // Arms
+        // Feet sit either side of the contact and lift one row when stepping
+        px(ox + 1, oy + (pose.leftFootUp ? 12 : 13), 2, 1, foot)
+        px(ox + 7, oy + (pose.rightFootUp ? 12 : 13), 2, 1, foot)
+
+        // Thin metal arms
         func arm(_ x: Int, _ arm: CritterPose.Arm) {
             switch arm {
-            case .side: px(x, oy + 6, 1, 2, body)
-            case .down: px(x, oy + 8, 1, 2, body)
-            case .forward: px(x, oy + 9, 1, 2, body)
-            case .up: px(x, oy + 2, 1, 3, body)
+            case .side: px(x, oy + 4, 1, 2, metalDark)
+            case .down: px(x, oy + 6, 1, 2, metalDark)
+            case .forward: px(x, oy + 7, 1, 2, metalDark)
+            case .up: px(x, oy + 1, 1, 3, metalDark)
             }
         }
         arm(ox - 1, pose.leftArm)
-        arm(ox + 12, pose.rightArm)
-
-        // Feet
-        px(ox + 2, oy + 11, 2, pose.leftFootUp ? 1 : 2, foot)
-        px(ox + 8, oy + 11, 2, pose.rightFootUp ? 1 : 2, foot)
+        arm(ox + 10, pose.rightArm)
 
         // Eyes
-        let lx = ox + 3, rx = ox + 7, ey = oy + 5
+        let lx = ox + 2, rx = ox + 6, ey = oy + 4
         switch pose.eyes {
         case .open(let dx, let dy):
             px(lx + dx, ey + dy, 2, 2, ink)
@@ -129,16 +149,15 @@ enum CritterRenderer {
             px(rx, ey - 1, 2, 3, ink)
         }
         if pose.mouth {
-            px(ox + 5, oy + 8, 2, 1, ink)
+            px(ox + 4, oy + 7, 2, 1, ink)
         }
 
         // Badge in the top-right corner, fixed so it stays readable while the body moves
         switch pose.badge {
         case .exclamation:
-            px(20, 1, 2, 6, red)
-            px(20, 8, 2, 2, red)
+            px(19, 1, 2, 6, red)
+            px(19, 8, 2, 2, red)
         case .sparkle(let big):
-            px(20, 4, 1, 1, yellow)
             px(19, 4, 3, 1, yellow)
             px(20, 3, 1, 3, yellow)
             if big {
@@ -147,10 +166,10 @@ enum CritterRenderer {
             }
         case .dots(let count):
             for i in 0..<max(0, min(3, count)) {
-                px(17 + i * 2, 3, 1, 1, .labelColor)
+                px(16 + i * 2, 2, 1, 1, .labelColor)
             }
         case .zee(let step):
-            let x = 17 + step, y = 9 - step * 3
+            let x = 16 + step, y = 8 - step * 3
             let color = NSColor.secondaryLabelColor
             px(x, y, 4, 1, color)
             px(x + 2, y + 1, 1, 1, color)

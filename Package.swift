@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentLamp",
+    name: "NudgeLamp",
     platforms: [.macOS(.v15)],
     targets: [
-        .target(name: "AgentLampCore"),
-        .executableTarget(name: "AgentLamp", dependencies: ["AgentLampCore"]),
-        .testTarget(name: "AgentLampCoreTests", dependencies: ["AgentLampCore"]),
+        .target(name: "NudgeLampCore"),
+        .executableTarget(name: "NudgeLamp", dependencies: ["NudgeLampCore"]),
+        .testTarget(name: "NudgeLampCoreTests", dependencies: ["NudgeLampCore"]),
     ]
 )

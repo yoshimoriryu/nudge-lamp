@@ -1,4 +1,4 @@
-import AgentLampCore
+import NudgeLampCore
 import AppKit
 
 @MainActor

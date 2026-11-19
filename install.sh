@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Installs Agent Lamp into ~/Applications, starts it, and adds it to your login items.
+# Installs Nudge Lamp into ~/Applications, starts it, and adds it to your login items.
 #
-#   curl -fsSL https://raw.githubusercontent.com/yoshimoriryu/agent-lamp/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/yoshimoriryu/nudge-lamp/main/install.sh | bash
 #
 # Options (after `bash -s --` when piping from curl):
 #   --from-source   build with Swift instead of downloading the latest release
-#   --no-login      do not add Agent Lamp to your login items
-#   --uninstall     quit Agent Lamp and remove it
+#   --no-login      do not add Nudge Lamp to your login items
+#   --uninstall     quit Nudge Lamp and remove it
 set -euo pipefail
 
-REPO="yoshimoriryu/agent-lamp"
-APP_NAME="Agent Lamp.app"
+REPO="yoshimoriryu/nudge-lamp"
+APP_NAME="Nudge Lamp.app"
 DEST="$HOME/Applications"
-# AGENT_LAMP_ZIP_URL lets tests point the installer at a local zip (file:///path/AgentLamp.zip).
-ZIP_URL="${AGENT_LAMP_ZIP_URL:-https://github.com/$REPO/releases/latest/download/AgentLamp.zip}"
+# NUDGE_LAMP_ZIP_URL lets tests point the installer at a local zip (file:///path/NudgeLamp.zip).
+ZIP_URL="${NUDGE_LAMP_ZIP_URL:-https://github.com/$REPO/releases/latest/download/NudgeLamp.zip}"
 
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -29,22 +29,22 @@ for arg in "$@"; do
   esac
 done
 
-[[ "$(uname -s)" == "Darwin" ]] || die "Agent Lamp runs on macOS only."
+[[ "$(uname -s)" == "Darwin" ]] || die "Nudge Lamp runs on macOS only."
 macos="$(sw_vers -productVersion)"
-(( ${macos%%.*} >= 15 )) || die "Agent Lamp needs macOS 15 or later. This Mac runs $macos."
+(( ${macos%%.*} >= 15 )) || die "Nudge Lamp needs macOS 15 or later. This Mac runs $macos."
 
 quit_running() {
-  if pgrep -x AgentLamp >/dev/null; then
+  if pgrep -x NudgeLamp >/dev/null; then
     say "Quitting the running copy"
-    pkill -x AgentLamp || true
-    while pgrep -x AgentLamp >/dev/null; do sleep 0.2; done
+    pkill -x NudgeLamp || true
+    while pgrep -x NudgeLamp >/dev/null; do sleep 0.2; done
   fi
 }
 
 if [[ "$mode" == "uninstall" ]]; then
   quit_running
-  if [[ -x "$DEST/$APP_NAME/Contents/MacOS/AgentLamp" ]]; then
-    "$DEST/$APP_NAME/Contents/MacOS/AgentLamp" --unregister-login-item || true
+  if [[ -x "$DEST/$APP_NAME/Contents/MacOS/NudgeLamp" ]]; then
+    "$DEST/$APP_NAME/Contents/MacOS/NudgeLamp" --unregister-login-item || true
   fi
   rm -rf "$DEST/$APP_NAME"
   say "Removed $DEST/$APP_NAME"
@@ -56,8 +56,8 @@ trap 'rm -rf "$work"' EXIT
 
 if [[ "$mode" == "release" ]]; then
   say "Downloading the latest release"
-  if curl -fsL "$ZIP_URL" -o "$work/AgentLamp.zip"; then
-    ditto -x -k "$work/AgentLamp.zip" "$work"
+  if curl -fsL "$ZIP_URL" -o "$work/NudgeLamp.zip"; then
+    ditto -x -k "$work/NudgeLamp.zip" "$work"
   else
     say "Download failed, building from source instead"
     mode=source
@@ -68,7 +68,7 @@ if [[ "$mode" == "source" ]]; then
   command -v swift >/dev/null || die "Swift not found. Install the command line tools with: xcode-select --install"
   # Use this checkout when the script runs from one, otherwise clone the repo.
   src="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-  if ! grep -qs '"AgentLamp"' "$src/Package.swift"; then
+  if ! grep -qs '"NudgeLamp"' "$src/Package.swift"; then
     say "Cloning $REPO"
     git clone --quiet --depth 1 "https://github.com/$REPO.git" "$work/src"
     src="$work/src"

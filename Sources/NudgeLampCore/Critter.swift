@@ -14,7 +14,8 @@ public enum CritterMood: Sendable, CaseIterable {
     }
 }
 
-/// One frame of the critter, described in sprite terms. The app turns it into pixels.
+/// One frame of the critter, a small light bulb with a face, described in sprite terms.
+/// The app turns it into pixels.
 public struct CritterPose: Hashable, Sendable {
     public enum Eyes: Hashable, Sendable {
         case open(dx: Int, dy: Int)
@@ -27,8 +28,10 @@ public struct CritterPose: Hashable, Sendable {
         case down, side, up, forward
     }
 
-    public enum Tip: Hashable, Sendable {
-        case dim, glow, bright, red, yellow
+    /// The color the bulb glows. It carries the state, so the lamp reads at a glance.
+    public enum Bulb: Hashable, Sendable {
+        /// `white` is the pale flash between red frames while blocked.
+        case off, green, mint, red, white, amber
     }
 
     public enum Badge: Hashable, Sendable {
@@ -46,9 +49,7 @@ public struct CritterPose: Hashable, Sendable {
     public var rightArm: Arm = .side
     public var leftFootUp = false
     public var rightFootUp = false
-    public var antennaLean = 0
-    public var antennaDroop = false
-    public var tip: Tip = .glow
+    public var bulb: Bulb = .green
     public var badge: Badge?
     public var dimmed = false
 
@@ -74,7 +75,7 @@ public enum CritterVariant: String, CaseIterable, Sendable {
     /// The pose `t` frames into the loop, at `CritterAnimator.fps`.
     public func pose(at t: Int) -> CritterPose {
         var p = CritterPose()
-        let redBlink: CritterPose.Tip = (t / 2) % 2 == 0 ? .red : .bright
+        let alarm: CritterPose.Bulb = (t / 2) % 2 == 0 ? .red : .white
 
         switch self {
         case .walk:
@@ -84,7 +85,6 @@ public enum CritterVariant: String, CaseIterable, Sendable {
             p.dy = phase % 2 == 0 ? -1 : 0
             p.leftArm = phase == 2 ? .down : .side
             p.rightArm = phase == 0 ? .down : .side
-            p.antennaLean = phase == 0 ? -1 : (phase == 2 ? 1 : 0)
             p.eyes = .open(dx: 1, dy: 0)
 
         case .type:
@@ -92,14 +92,13 @@ public enum CritterVariant: String, CaseIterable, Sendable {
             p.leftArm = phase == 0 ? .forward : .down
             p.rightArm = phase == 2 ? .forward : .down
             p.eyes = t % 40 == 39 ? .closed : .open(dx: 0, dy: 1)
-            p.tip = (t / 2) % 2 == 0 ? .glow : .bright
+            p.bulb = (t / 2) % 2 == 0 ? .green : .mint
 
         case .think:
             p.eyes = .open(dx: 1, dy: -1)
             p.badge = .dots((t / 4) % 4)
-            p.antennaLean = [0, 1, 0, -1][(t / 3) % 4]
             p.rightArm = .up
-            p.tip = .bright
+            p.bulb = (t / 6) % 2 == 0 ? .mint : .green
 
         case .jump:
             let arc = [0, -1, -2, -3, -3, -2, -1, 0, 0, 0]
@@ -110,7 +109,7 @@ public enum CritterVariant: String, CaseIterable, Sendable {
             p.rightFootUp = p.dy < -1
             p.eyes = .wide
             p.mouth = true
-            p.tip = redBlink
+            p.bulb = alarm
             p.badge = .exclamation
 
         case .wave:
@@ -120,7 +119,7 @@ public enum CritterVariant: String, CaseIterable, Sendable {
             p.dy = up ? -1 : 0
             p.eyes = .wide
             p.mouth = true
-            p.tip = redBlink
+            p.bulb = alarm
             p.badge = .exclamation
 
         case .shake:
@@ -130,7 +129,7 @@ public enum CritterVariant: String, CaseIterable, Sendable {
             p.rightArm = .up
             p.eyes = .wide
             p.mouth = true
-            p.tip = redBlink
+            p.bulb = alarm
             p.badge = .exclamation
 
         case .cheer:
@@ -139,29 +138,26 @@ public enum CritterVariant: String, CaseIterable, Sendable {
             p.leftArm = .up
             p.rightArm = .up
             p.eyes = .happy
-            p.tip = .yellow
+            p.bulb = .amber
             p.badge = .sparkle(big: (t / 3) % 2 == 0)
 
         case .tap:
             p.rightFootUp = (t / 3) % 2 == 0
             p.leftArm = .down
             p.eyes = t % 24 == 23 ? .closed : .open(dx: -1, dy: 0)
-            p.tip = .yellow
+            p.bulb = .amber
             p.badge = .sparkle(big: false)
 
         case .lookAround:
-            let look = [-1, 0, 1, 0][(t / 6) % 4]
-            p.eyes = .open(dx: look, dy: 0)
-            p.antennaLean = look
-            p.tip = .yellow
+            p.eyes = .open(dx: [-1, 0, 1, 0][(t / 6) % 4], dy: 0)
+            p.bulb = .amber
             p.badge = .sparkle(big: (t / 6) % 2 == 0)
 
         case .sleep:
             p.eyes = .closed
             p.leftArm = .down
             p.rightArm = .down
-            p.antennaDroop = true
-            p.tip = .dim
+            p.bulb = .off
             p.badge = .zee(step: (t / 6) % 3)
             p.dimmed = true
 
@@ -169,15 +165,13 @@ public enum CritterVariant: String, CaseIterable, Sendable {
             p.eyes = t % 32 >= 30 ? .closed : .open(dx: 0, dy: 0)
             p.leftArm = .down
             p.rightArm = .down
-            p.tip = .dim
+            p.bulb = .off
             p.dimmed = true
 
         case .daydream:
-            let look = [0, 1, 1, 0, -1, -1][(t / 8) % 6]
-            p.eyes = .open(dx: look, dy: -1)
-            p.antennaLean = [0, 1, 0, -1][(t / 8) % 4]
+            p.eyes = .open(dx: [0, 1, 1, 0, -1, -1][(t / 8) % 6], dy: -1)
             p.leftArm = .down
-            p.tip = .dim
+            p.bulb = .off
             p.dimmed = true
         }
         return p

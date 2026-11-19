@@ -1,4 +1,4 @@
-import AgentLampCore
+import NudgeLampCore
 import AppKit
 import CoreServices
 import ServiceManagement
@@ -20,16 +20,16 @@ enum Permission: Equatable, Sendable {
     }
 }
 
-/// Checks the macOS permissions Agent Lamp depends on, and fixes what it can.
+/// Checks the macOS permissions Nudge Lamp depends on, and fixes what it can.
 enum Doctor {
     static let notificationSettingsURL = URL(
-        string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=io.github.yoshimoriryu.agentlamp"
+        string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=io.github.yoshimoriryu.nudgelamp"
     )!
     static let automationSettingsURL = URL(
         string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
     )!
 
-    /// Whether Agent Lamp may send Apple Events to iTerm2.
+    /// Whether Nudge Lamp may send Apple Events to iTerm2.
     /// With `askIfNeeded`, macOS shows its consent prompt and this call blocks until the user answers.
     static func iTermControl(askIfNeeded: Bool = false) -> Permission {
         let target = NSAppleEventDescriptor(bundleIdentifier: ITerm.bundleID)
@@ -72,15 +72,24 @@ enum Doctor {
     }
 
     /// Prints a setup report. Launch through `open` so macOS checks the app's own permissions,
-    /// not the terminal's: `open -n -W --stdout $(tty) "Agent Lamp.app" --args --doctor`
+    /// not the terminal's: `open -n -W --stdout $(tty) "Nudge Lamp.app" --args --doctor`
     static func printReport() async {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-        let folder = SessionDirectory.defaultURL
-        let folderExists = FileManager.default.fileExists(atPath: folder.path)
-        let sessions = SessionDirectory.load()
+        let claude = ClaudeAgents.locate()
+        var sessions = "Claude Code CLI not found"
+        if let claude {
+            let start = Date()
+            do {
+                let count = try ClaudeAgents.parse(ClaudeAgents.run(claude: claude)).count
+                sessions = "\(count) live, read in \(Int(Date().timeIntervalSince(start) * 1000)) ms"
+            } catch {
+                sessions = "claude agents --json failed: \(error)"
+            }
+        }
         let rows: [(String, String)] = [
-            ("Agent Lamp", version),
-            ("Sessions folder", folderExists ? "\(folder.path), \(sessions.count) live" : "\(folder.path) missing"),
+            ("Nudge Lamp", version),
+            ("Claude Code CLI", claude?.path ?? "not found"),
+            ("Sessions", sessions),
             ("iTerm2 control", iTermControl().label),
             ("Notifications", await notifications().label),
             ("Open at login", loginItem),

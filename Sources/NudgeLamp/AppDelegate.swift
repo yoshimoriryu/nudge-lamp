@@ -1,4 +1,4 @@
-import AgentLampCore
+import NudgeLampCore
 import AppKit
 import ServiceManagement
 
@@ -7,12 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private let notifier = Notifier()
+    private let source = SessionSource()
     private var tracker = Tracker()
     private var views: [SessionView] = []
     private var timer: Timer?
     private var animationTimer: Timer?
     private var frame = 0
     private var menuIsOpen = false
+    private var openSubmenus = 0
     private var lampState: LampState = .idle
     private var animator = CritterAnimator()
     private var lastPose: CritterPose?
@@ -32,10 +34,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private let defaults = UserDefaults.standard
-    private var soundOn: Bool {
-        get { defaults.object(forKey: "sound") as? Bool ?? true }
-        set { defaults.set(newValue, forKey: "sound") }
+    /// Sound names for each event. "None" turns the sound off.
+    private static let waitingSoundKey = "sound.waiting"
+    private static let finishedSoundKey = "sound.finished"
+    private static let soundDefaults = [waitingSoundKey: "Funk", finishedSoundKey: "Glass"]
+
+    private func sound(_ key: String) -> String {
+        defaults.string(forKey: key) ?? Self.soundDefaults[key] ?? "None"
     }
+
+    /// Sounds NSSound can play by name: the macOS system sounds plus any the user added.
+    private static let availableSounds: [String] = {
+        let folders = [
+            "/System/Library/Sounds",
+            "/Library/Sounds",
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Sounds").path,
+        ]
+        let extensions: Set<String> = ["aiff", "aif", "wav", "mp3", "m4a", "caf"]
+        var names = Set<String>()
+        for folder in folders {
+            for file in (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [] {
+                let url = URL(fileURLWithPath: file)
+                if extensions.contains(url.pathExtension.lowercased()) {
+                    names.insert(url.deletingPathExtension().lastPathComponent)
+                }
+            }
+        }
+        return names.sorted()
+    }()
     private var bannersOn: Bool {
         get { defaults.object(forKey: "banners") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "banners") }
@@ -55,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.layer?.addSublayer(critterLayer)
 
         notifier.onClick = { [weak self] pid in self?.reveal(pid: pid) }
+        source.onUpdate = { [weak self] in self?.refresh() }
         notifier.setUp()
         refreshNotificationPermission()
 
@@ -63,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 try SMAppService.mainApp.register()
             } catch {
-                NSLog("Agent Lamp: could not add login item: \(error.localizedDescription)")
+                NSLog("Nudge Lamp: could not add login item: \(error.localizedDescription)")
             }
         }
 
@@ -110,10 +137,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Polling
 
     private func refresh() {
-        let records = SessionDirectory.load()
+        source.poll()
+        let records = source.records
         let before = Set(views.filter(\.state.needsYou).map(\.record.sessionId))
 
-        let update = tracker.update(records, now: Date(), focused: focusedSessionIds(records))
+        // Asking iTerm2 for the focused tab is an Apple Event round trip. Only ask when the answer
+        // can change something: a session needs you, or a session's status just changed.
+        let previous = Dictionary(views.map { ($0.record.sessionId, $0) }, uniquingKeysWith: { a, _ in a })
+        let focusMatters = records.contains { record in
+            guard let old = previous[record.sessionId] else { return false }
+            return old.state.needsYou || old.record.status != record.status
+        }
+        let focused = focusMatters ? focusedSessionIds(records) : []
+
+        let update = tracker.update(records, now: Date(), focused: focused)
         views = update.views
         update.events.forEach(announce)
 
@@ -122,7 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         frame += 1
         updateButton()
-        if menuIsOpen { rebuildMenu() }
+        // Rebuilding while a submenu is open would close it.
+        if menuIsOpen && openSubmenus == 0 { rebuildMenu() }
     }
 
     private func focusedSessionIds(_ records: [SessionRecord]) -> Set<String> {
@@ -132,7 +170,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func announce(_ event: LampEvent) {
         if bannersOn { notifier.post(event) }
-        if soundOn { NSSound(named: event.state == .blocked ? "Funk" : "Glass")?.play() }
+        play(sound(event.state == .blocked ? Self.waitingSoundKey : Self.finishedSoundKey))
+    }
+
+    private func play(_ name: String) {
+        guard name != "None" else { return }
+        NSSound(named: NSSound.Name(name))?.play()
     }
 
     private func updateButton() {
@@ -153,7 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if button.title != title { button.title = title }
         button.toolTip = summary.needsYouCount > 0
             ? "\(summary.needsYouCount) Claude Code session(s) need you"
-            : "Agent Lamp: \(StatusIcon.label(for: summary.state))"
+            : "Nudge Lamp: \(StatusIcon.label(for: summary.state))"
 
         critterLayer.isHidden = !characterOn
         if characterOn, let cell = button.cell as? NSButtonCell {
@@ -169,8 +212,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Menu
 
-    func menuNeedsUpdate(_ menu: NSMenu) { rebuildMenu() }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === self.menu { rebuildMenu() }
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
+        guard menu === self.menu else {
+            openSubmenus += 1
+            return
+        }
         menuIsOpen = true
         refreshNotificationPermission()
     }
@@ -200,13 +250,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         return items
     }
-    func menuDidClose(_ menu: NSMenu) { menuIsOpen = false }
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === self.menu {
+            menuIsOpen = false
+            openSubmenus = 0
+        } else {
+            openSubmenus = max(0, openSubmenus - 1)
+        }
+    }
+
+    /// A submenu listing every available sound, with the current choice checked.
+    private func soundMenu(_ title: String, key: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let current = sound(key)
+        item.subtitle = current
+        let submenu = NSMenu()
+        submenu.delegate = self
+        submenu.autoenablesItems = false
+        for name in ["None"] + Self.availableSounds {
+            let choice = NSMenuItem(title: name, action: #selector(chooseSound(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = [key, name]
+            choice.state = name == current ? .on : .off
+            submenu.addItem(choice)
+        }
+        item.submenu = submenu
+        return item
+    }
 
     private func rebuildMenu() {
         menu.removeAllItems()
         let now = Date()
 
-        if views.isEmpty {
+        if let problem = source.problem {
+            let item = NSMenuItem(title: problem, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        } else if views.isEmpty {
             let empty = NSMenuItem(title: "No Claude Code sessions running", action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
@@ -234,12 +314,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if views.contains(where: { $0.state == .finished }) {
             menu.addItem(actionItem("Mark All as Seen", #selector(markAllSeen)))
         }
-        menu.addItem(toggleItem("Play Sound", on: soundOn, #selector(toggleSound)))
+        menu.addItem(soundMenu("Sound When Waiting", key: Self.waitingSoundKey))
+        menu.addItem(soundMenu("Sound When Finished", key: Self.finishedSoundKey))
         menu.addItem(toggleItem("Show Banners", on: bannersOn, #selector(toggleBanners)))
         menu.addItem(toggleItem("Animated Critter", on: characterOn, #selector(toggleCharacter)))
         menu.addItem(toggleItem("Open at Login", on: SMAppService.mainApp.status == .enabled, #selector(toggleLogin)))
         menu.addItem(.separator())
-        menu.addItem(actionItem("Quit Agent Lamp", #selector(quit), key: "q"))
+        menu.addItem(actionItem("Quit Nudge Lamp", #selector(quit), key: "q"))
     }
 
     private func describe(_ view: SessionView) -> String {
@@ -309,7 +390,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(Doctor.automationSettingsURL)
     }
 
-    @objc private func toggleSound() { soundOn.toggle() }
+    /// Saves the picked sound and plays it once as a preview.
+    @objc private func chooseSound(_ sender: NSMenuItem) {
+        guard let pair = sender.representedObject as? [String], pair.count == 2 else { return }
+        defaults.set(pair[1], forKey: pair[0])
+        play(pair[1])
+    }
     @objc private func toggleBanners() { bannersOn.toggle() }
 
     @objc private func toggleCharacter() {
@@ -327,7 +413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try service.register()
             }
         } catch {
-            NSLog("Agent Lamp: login item change failed: \(error.localizedDescription)")
+            NSLog("Nudge Lamp: login item change failed: \(error.localizedDescription)")
         }
     }
 

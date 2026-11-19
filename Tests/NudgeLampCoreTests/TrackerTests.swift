@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AgentLampCore
+@testable import NudgeLampCore
 
 private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -150,45 +150,66 @@ private func session(
     }
 }
 
-@Suite struct SessionDirectoryTests {
-    @Test func decodesRealFileAndSkipsDaemonsAndJunk() throws {
+@Suite struct ClaudeAgentsTests {
+    // Shape copied from `claude agents --json` in Claude Code 2.1.328, with names and IDs replaced.
+    static let sample = Data(#"""
+    [
+      {"cwd":"/Users/me/old","kind":"background","id":"bg1","state":"blocked","sessionId":"s-bg","name":"Old task","startedAt":1795000000000},
+      {"cwd":"/Users/me/api","kind":"interactive","pid":2398,"status":"idle","sessionId":"s-idle","name":"api-58","startedAt":1794445128648},
+      {"cwd":"/Users/me/web","kind":"interactive","pid":13625,"status":"waiting","waitingFor":"permission prompt","sessionId":"s-wait","name":"web-91","startedAt":1795054103471},
+      {"cwd":"/Users/me/cli","kind":"interactive","pid":19926,"status":"busy","startedAt":1795049895086}
+    ]
+    """#.utf8)
+
+    @Test func keepsOnlySessionsWithALiveProcess() throws {
+        let records = try ClaudeAgents.parse(Self.sample)
+        #expect(records.map(\.pid) == [2398, 13625, 19926], "the background entry has no pid, so it is not running")
+    }
+
+    @Test func mapsDocumentedFields() throws {
+        let waiting = try #require(try ClaudeAgents.parse(Self.sample).first { $0.pid == 13625 })
+        #expect(waiting.status == "waiting")
+        #expect(waiting.waitingFor == "permission prompt")
+        #expect(waiting.displayName == "web-91")
+        #expect(waiting.cwd == "/Users/me/web")
+        #expect(Tracker.baseState(of: waiting) == .blocked)
+    }
+
+    @Test func fillsMissingSessionIdAndNameFallbacks() throws {
+        let unnamed = try #require(try ClaudeAgents.parse(Self.sample).first { $0.pid == 19926 })
+        #expect(unnamed.sessionId == "pid-19926")
+        #expect(unnamed.displayName == "cli")
+    }
+
+    @Test func changeTimesComeFromTheSessionFolder() throws {
+        let when = Date(timeIntervalSince1970: 1_795_054_111.804)
+        let records = try ClaudeAgents.parse(Self.sample, changedAt: [13625: when])
+        #expect(records.first { $0.pid == 13625 }?.statusChangedAt == when)
+        let idle = try #require(records.first { $0.pid == 2398 })
+        #expect(idle.statusChangedAt == idle.startDate, "falls back to the start time")
+    }
+
+    @Test func rejectsGarbage() {
+        #expect(throws: (any Error).self) { try ClaudeAgents.parse(Data("not json".utf8)) }
+    }
+
+    @Test func emptyListMeansNoSessions() throws {
+        #expect(try ClaudeAgents.parse(Data("[]".utf8)).isEmpty)
+    }
+
+    @Test func sessionFolderReadsModificationTimesByPid() throws {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agent-lamp-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("nudge-lamp-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("4242.json")
+        try Data("{}".utf8).write(to: file)
+        let stamp = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: file.path)
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("4242.abc.key"))
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("notapid.json"))
 
-        // Shape copied from a Claude Code 2.1.328 session file.
-        let real = #"""
-        {"pid":13625,"sessionId":"abc123","cwd":"/Users/me/code","startedAt":1795054103471,"version":"2.1.328","kind":"interactive","entrypoint":"cli","name":"code-91","nameSource":"derived","status":"waiting","waitingFor":"permission","updatedAt":1795054111804,"statusUpdatedAt":1795054111804}
-        """#
-        let daemon = #"{"pid":1,"sessionId":"d","cwd":"/","kind":"daemon","status":"busy"}"#
-        try real.write(to: dir.appendingPathComponent("13625.json"), atomically: true, encoding: .utf8)
-        try daemon.write(to: dir.appendingPathComponent("1.json"), atomically: true, encoding: .utf8)
-        try "not json".write(to: dir.appendingPathComponent("2.json"), atomically: true, encoding: .utf8)
-        try "{}".write(to: dir.appendingPathComponent("13625.abc.key"), atomically: true, encoding: .utf8)
-
-        let records = SessionDirectory.load(from: dir, isAlive: { _ in true })
-        #expect(records.count == 1)
-        let record = try #require(records.first)
-        #expect(record.pid == 13625)
-        #expect(record.displayName == "code-91")
-        #expect(record.status == "waiting")
-        #expect(record.waitingFor == "permission")
-        #expect(record.statusChangedAt == Date(milliseconds: 1795054111804))
-    }
-
-    @Test func deadProcessIsDropped() {
-        let ghost = SessionRecord(pid: 99_999_999, sessionId: "x", cwd: "/", status: "idle", startedAt: 0)
-        #expect(ProcessLookup.isAlive(ghost) == false)
-    }
-
-    @Test func currentProcessIsAliveAndRecycledPidIsNot() {
-        let pid = getpid()
-        let start = ProcessLookup.startTime(of: pid)!
-        let mine = SessionRecord(pid: pid, sessionId: "me", cwd: "/", status: "busy", startedAt: ms(start) + 200)
-        #expect(ProcessLookup.isAlive(mine))
-        let older = SessionRecord(pid: pid, sessionId: "old", cwd: "/", status: "busy", startedAt: ms(start) - 60_000)
-        #expect(ProcessLookup.isAlive(older) == false, "file predates this process, so the PID was recycled")
+        #expect(SessionFolder.modificationDates(in: dir) == [4242: stamp])
     }
 }
 
@@ -208,13 +229,22 @@ private struct SeededRandom: RandomNumberGenerator {
         #expect(Set(all).count == 12)
     }
 
-    @Test func blockedAlwaysShowsExclamationAndFinishedAlwaysShowsYellowTip() {
+    @Test func bulbColorAndBadgeAlwaysMatchTheMood() {
         for t in 0..<200 {
             for variant in CritterVariant.variants(for: .blocked) {
-                #expect(variant.pose(at: t).badge == .exclamation)
+                let pose = variant.pose(at: t)
+                #expect(pose.badge == .exclamation)
+                #expect(pose.bulb == .red || pose.bulb == .white)
+            }
+            for variant in CritterVariant.variants(for: .working) {
+                let bulb = variant.pose(at: t).bulb
+                #expect(bulb == .green || bulb == .mint)
             }
             for variant in CritterVariant.variants(for: .finished) {
-                #expect(variant.pose(at: t).tip == .yellow)
+                #expect(variant.pose(at: t).bulb == .amber)
+            }
+            for variant in CritterVariant.variants(for: .idle) {
+                #expect(variant.pose(at: t).bulb == .off)
             }
         }
     }
