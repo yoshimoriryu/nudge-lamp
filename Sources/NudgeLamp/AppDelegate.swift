@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var timer: Timer?
     private var animationTimer: Timer?
     private var frame = 0
+    private var animationTick = 0
     private var menuIsOpen = false
     private var openSubmenus = 0
     private var lampState: LampState = .idle
@@ -77,6 +78,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         get { defaults.object(forKey: "character") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "character") }
     }
+    /// Off by default: a critter walking over someone's menu bar should be their choice.
+    private var wanderOn: Bool {
+        get { Self.demoWalk || defaults.bool(forKey: "wander") }
+        set { defaults.set(newValue, forKey: "wander") }
+    }
+
+    // MARK: Walking
+
+    private let walker = Walker()
+    private var wanderer = Wanderer(timing: AppDelegate.demoWalk ? .demo : .normal)
+    /// When the lamp's state or count last changed, or the user last clicked the critter or opened
+    /// the menu. The critter heads out once this is `wanderDelay` old.
+    private var quietSince = Date()
+    private var lastSummary: (state: LampState, count: Int)?
+    private var screensAsleep = false
+    /// `--wander` walks after a few seconds of quiet with short rests, for trying it out.
+    private static let demoWalk = CommandLine.arguments.contains("--wander")
+    private static let wanderDelay: TimeInterval = demoWalk ? 3 : 30
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menu.delegate = self
@@ -88,6 +107,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.layer?.addSublayer(critterLayer)
 
         notifier.onClick = { [weak self] pid in self?.reveal(pid: pid) }
+        walker.onClick = { [weak self] in self?.walkerClicked() }
+        let workspace = NSWorkspace.shared.notificationCenter
+        for (name, asleep) in [
+            (NSWorkspace.screensDidSleepNotification, true),
+            (NSWorkspace.sessionDidResignActiveNotification, true),
+            (NSWorkspace.screensDidWakeNotification, false),
+            (NSWorkspace.sessionDidBecomeActiveNotification, false),
+        ] {
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screensAsleep = asleep }
+            }
+        }
         source.onUpdate = { [weak self] in self?.refresh() }
         notifier.setUp()
         refreshNotificationPermission()
@@ -117,13 +148,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.animationTimer = animationTimer
     }
 
-    /// Advances the critter one frame. Skips the redraw when the pose did not change.
+    /// Advances the critter one frame, in its slot or out on a walk.
+    /// Skips the slot redraw when its pose did not change.
     private func animate() {
-        guard characterOn, let button = statusItem.button else { return }
-        let pose = animator.next(mood: CritterMood(lampState))
+        guard characterOn, let button = statusItem.button else {
+            walker.hide()
+            return
+        }
+        let mood = CritterMood(lampState)
+        let walking = walk(mood: mood)
+        animationTick += 1
+        let pose = walking.away
+            ? CritterPose.socket
+            : animator.next(mood: mood).plugged(mood: mood, tick: animationTick, homecoming: walking.homecoming)
         guard pose != lastPose else { return }
         lastPose = pose
 
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        critterLayer.contentsScale = button.window?.backingScaleFactor ?? 2
+        critterLayer.contents = image(for: pose)
+        CATransaction.commit()
+    }
+
+    /// The cached image of a pose for the current appearance, screen scale and size.
+    private func image(for pose: CritterPose) -> CGImage? {
+        guard let button = statusItem.button else { return nil }
         let scale = button.window?.backingScaleFactor ?? 2
         let appearance = button.effectiveAppearance
         let layout = critterLayout
@@ -132,16 +182,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             poseImages.removeAll()
             poseImagesKey = key
         }
-        if poseImages[pose] == nil {
-            poseImages[pose] = CritterRenderer.cgImage(
-                pose, pixelScale: scale * layout.points, lift: layout.lift, appearance: appearance
-            )
+        if let image = poseImages[pose] { return image }
+        let image = CritterRenderer.cgImage(
+            pose, pixelScale: scale * layout.points, lift: layout.lift, appearance: appearance
+        )
+        poseImages[pose] = image
+        return image
+    }
+
+    /// Moves the walking critter one frame. `away` is true while it is out of its slot,
+    /// and `homecoming` for a moment after it plugs back in.
+    private func walk(mood: CritterMood) -> (away: Bool, homecoming: Bool) {
+        guard let button = statusItem.button, let window = button.window, let screen = window.screen else {
+            walker.hide()
+            if !wanderer.isHome { wanderer.comeHomeNow() }
+            return (false, false)
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        critterLayer.contentsScale = scale
-        critterLayer.contents = poseImages[pose]
-        CATransaction.commit()
+        // The slot in screen points: where the critter hops out from and back into.
+        let slot = window.convertToScreen(button.convert(critterLayer.frame, to: nil))
+        let points = critterLayout.points
+        let track = WanderTrack(
+            screenMinX: screen.frame.minX,
+            screenMaxX: screen.frame.maxX,
+            notch: Self.notch(of: screen),
+            spriteWidth: slot.width
+        )
+        let frame = wanderer.step(
+            mayWander: mayWander(on: screen),
+            mood: mood,
+            home: slot.minX,
+            track: track,
+            points: points
+        )
+        guard frame.away else {
+            walker.hide()
+            return (false, frame.homecoming)
+        }
+        // Land on whole device pixels so the pixel art stays crisp.
+        let scale = window.backingScaleFactor
+        let x = (frame.x * scale).rounded() / scale
+        walker.show(
+            image(for: frame.pose),
+            frame: NSRect(x: x, y: slot.minY, width: slot.width, height: slot.height),
+            scale: scale
+        )
+        return (true, false)
+    }
+
+    private func mayWander(on screen: NSScreen) -> Bool {
+        guard wanderOn, !screensAsleep, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            return false
+        }
+        // An auto-hiding menu bar is usually out of sight, so there is nothing to walk on.
+        guard screen.visibleFrame.maxY < screen.frame.maxY, !menuIsOpen else { return false }
+        return Date().timeIntervalSince(quietSince) >= Self.wanderDelay
+    }
+
+    /// The camera housing's span on a notched display, in screen points.
+    private static func notch(of screen: NSScreen) -> ClosedRange<Double>? {
+        guard let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
+              right.minX > left.maxX else { return nil }
+        // The areas may be relative to the screen; shift them onto it if so.
+        let offset = left.minX < screen.frame.minX ? screen.frame.minX : 0
+        return (left.maxX + offset)...(right.minX + offset)
+    }
+
+    /// Clicking the walking critter sends it dashing back to its slot.
+    private func walkerClicked() {
+        quietSince = Date()
     }
 
     // MARK: Polling
@@ -201,6 +309,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         let summary = LampSummary(views)
         lampState = summary.state
+        // Any change to the state or the count calls the critter home and restarts the quiet clock.
+        if lastSummary?.state != summary.state || lastSummary?.count != summary.needsYouCount {
+            lastSummary = (summary.state, summary.needsYouCount)
+            quietSince = Date()
+        }
         let layout = critterLayout
         let critterWidth = CGFloat(CritterRenderer.columns) * layout.points
         let critterHeight = CGFloat(layout.height)
@@ -250,6 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         menuIsOpen = true
+        quietSince = Date()
         refreshNotificationPermission()
     }
 
@@ -296,6 +410,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         if menu === self.menu {
             menuIsOpen = false
+            quietSince = Date()
             openSubmenus = 0
         } else {
             openSubmenus = max(0, openSubmenus - 1)
@@ -365,6 +480,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(toggleItem("Show Banners", on: bannersOn, #selector(toggleBanners)))
         menu.addItem(toggleItem("Animated Critter", on: characterOn, #selector(toggleCharacter)))
         menu.addItem(sizeMenu())
+        let wander = toggleItem("Walk When Idle", on: wanderOn, #selector(toggleWander))
+        wander.isEnabled = characterOn
+        wander.toolTip = "When nothing needs you, the critter hops out and walks along the menu bar"
+        menu.addItem(wander)
         menu.addItem(toggleItem("Open at Login", on: SMAppService.mainApp.status == .enabled, #selector(toggleLogin)))
         menu.addItem(.separator())
         menu.addItem(actionItem("Quit Nudge Lamp", #selector(quit), key: "q"))
@@ -472,6 +591,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         critterSize = size
         lastPose = nil
         updateButton()
+    }
+
+    @objc private func toggleWander() {
+        wanderOn.toggle()
+        if !wanderOn {
+            wanderer.comeHomeNow()
+            walker.hide()
+            lastPose = nil
+        }
     }
 
     @objc private func toggleCharacter() {

@@ -31,7 +31,8 @@ public struct CritterPose: Hashable, Sendable {
     /// The color the bulb glows. It carries the state, so the lamp reads at a glance.
     public enum Bulb: Hashable, Sendable {
         /// `white` is the pale flash between red frames while blocked.
-        case off, green, mint, red, white, amber
+        /// `cream` is the soft glow of a critter out for a walk.
+        case off, green, mint, red, white, amber, cream
     }
 
     public enum Badge: Hashable, Sendable {
@@ -39,6 +40,8 @@ public struct CritterPose: Hashable, Sendable {
         case sparkle(big: Bool)
         case dots(Int)
         case zee(step: Int)
+        /// A drop of sweat flying off a panicking critter.
+        case sweat(step: Int)
     }
 
     public var dx = 0
@@ -52,6 +55,12 @@ public struct CritterPose: Hashable, Sendable {
     public var bulb: Bulb = .green
     public var badge: Badge?
     public var dimmed = false
+    /// Draw only the screw base, as an empty socket.
+    public var socketOnly = false
+    /// Out of its socket the bulb is unplugged: the glass is muted and nothing glows.
+    public var unlit = false
+    /// Halo around the glass while plugged in: 0 none, 1 soft, 2 bright.
+    public var glow = 0
 
     public init() {}
 }
@@ -267,5 +276,23 @@ public struct CritterLayout: Equatable, Sendable {
         }
         let lift = Double(bodyRows + fullLift) <= barHeight ? fullLift : tightLift
         return CritterLayout(points: 1.0, lift: lift)
+    }
+}
+
+extension CritterPose {
+    /// The pose as drawn in the menu bar slot. Plugged in, the bulb shines with a halo that pulses
+    /// gently while something runs. Just after coming home it beams for a moment, even when idle.
+    public func plugged(mood: CritterMood, tick: Int, homecoming: Bool) -> CritterPose {
+        var p = self
+        if homecoming {
+            if p.bulb == .off { p.bulb = .cream }
+            p.dimmed = false
+            p.eyes = .happy
+            if case .zee = p.badge { p.badge = nil }
+            p.glow = 2
+        } else if mood != .idle {
+            p.glow = (tick / 4) % 2 == 0 ? 2 : 1
+        }
+        return p
     }
 }

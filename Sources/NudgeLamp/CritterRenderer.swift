@@ -25,6 +25,8 @@ enum CritterRenderer {
     private static let shine = NSColor(white: 1, alpha: 0.85)
     private static let red = NSColor.systemRed
     private static let yellow = NSColor.systemYellow
+    private static let sweat = rgb(0x7DD3FC)
+    private static let unlitGrey = rgb(0x8E949E)
 
     /// Glass fill and outline for each bulb color.
     private static func glass(_ bulb: CritterPose.Bulb) -> (fill: NSColor, rim: NSColor) {
@@ -35,6 +37,7 @@ enum CritterRenderer {
         case .red: (rgb(0xFF5A5A), rgb(0xB91C1C))
         case .white: (rgb(0xFFB3AD), rgb(0xB91C1C))
         case .amber: (rgb(0xFCD34D), rgb(0xB45309))
+        case .cream: (rgb(0xFFE9A6), rgb(0xB8862B))
         }
     }
 
@@ -96,7 +99,36 @@ enum CritterRenderer {
         let ox = 4 + pose.dx
         // Jumps higher than the headroom are clipped to it, so tight layouts jump less.
         let oy = lift + max(pose.dy, -lift)
-        let (fill, rim) = glass(pose.bulb)
+        var (fill, rim) = glass(pose.bulb)
+        if pose.unlit {
+            // Unplugged: wash the glass toward grey so it reads as switched off but keeps its hue.
+            fill = fill.blended(withFraction: 0.35, of: unlitGrey) ?? fill
+            rim = rim.blended(withFraction: 0.35, of: unlitGrey) ?? rim
+        }
+
+        if pose.socketOnly {
+            px(ox + 2, oy + 10, 6, 1, metalLight)
+            px(ox + 2, oy + 11, 6, 1, metalDark)
+            px(ox + 2, oy + 12, 6, 1, metalLight)
+            px(ox + 3, oy + 13, 4, 1, contact)
+            return
+        }
+
+        // Halo: one ring of light just outside the glass, under everything else.
+        if pose.glow > 0 {
+            let light = fill.withAlphaComponent(pose.glow > 1 ? 0.55 : 0.3)
+            px(ox + 3, oy - 1, 4, 1, light)
+            px(ox + 1, oy, 2, 1, light)
+            px(ox + 7, oy, 2, 1, light)
+            px(ox, oy + 1, 1, 1, light)
+            px(ox + 9, oy + 1, 1, 1, light)
+            px(ox - 1, oy + 2, 1, 5, light)
+            px(ox + 10, oy + 2, 1, 5, light)
+            px(ox, oy + 7, 1, 1, light)
+            px(ox + 9, oy + 7, 1, 1, light)
+            px(ox + 1, oy + 8, 1, 1, light)
+            px(ox + 8, oy + 8, 1, 1, light)
+        }
 
         // Glass: draw the rim shape, then fill it one pixel in.
         px(ox + 3, oy, 4, 1, rim)
@@ -108,7 +140,7 @@ enum CritterRenderer {
         px(ox + 1, oy + 2, 8, 5, fill)
         px(ox + 2, oy + 7, 6, 1, fill)
         px(ox + 3, oy + 8, 4, 1, fill)
-        px(ox + 2, oy + 2, 1, 2, shine)
+        px(ox + 2, oy + 2, 1, 2, pose.unlit ? shine.withAlphaComponent(0.35) : shine)
 
         // Screw base and contact
         px(ox + 2, oy + 9, 6, 1, metalLight)
@@ -185,6 +217,11 @@ enum CritterRenderer {
             bx(x + 2, y + 1, 1, 1, color)
             bx(x + 1, y + 2, 1, 1, color)
             bx(x, y + 3, 4, 1, color)
+        case .sweat(let step):
+            // A droplet flicking up and away from the side of the glass.
+            let x = 15 + step, y = 5 - step
+            bx(x, y, 1, 1, sweat)
+            bx(x, y + 1, 2, 1, sweat)
         case nil:
             break
         }

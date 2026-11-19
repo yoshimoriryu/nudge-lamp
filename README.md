@@ -38,6 +38,10 @@ If you download the zip from the releases page with a browser, macOS blocks the 
 
 The menu has a size picker with four sizes, a sound picker for each event, a banner switch, a switch for the animated bulb and an Open at Login switch. Hover over a sound in the picker to hear it. Send Test Nudge plays the waiting sound and shows a sample banner.
 
+![The bulb strolls along the menu bar, then dashes home](docs/walk.gif)
+
+Turn on Walk When Idle and the bulb hops out of its slot once the lamp has gone 30 seconds without a change, then strolls along the menu bar. It keeps its color while out. When the lamp changes, or you click the bulb or open the menu, it dashes back to its slot.
+
 ## Notes
 
 - Uses very little CPU.

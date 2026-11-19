@@ -13,13 +13,58 @@ enum DocRenderer {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for mood in CritterMood.allCases {
             let frames = CritterVariant.variants(for: mood).flatMap { variant in
-                (0..<32).compactMap { frame(variant.pose(at: $0)) }
+                (0..<32).compactMap { frame(variant.pose(at: $0).plugged(mood: mood, tick: $0, homecoming: false)) }
             }
             try writeGIF(frames, to: directory.appendingPathComponent("\(mood).gif"))
         }
         try writeSheet(to: directory.appendingPathComponent("sheet.png"))
         try writeSheet(to: directory.appendingPathComponent("sheet-tight.png"), lift: CritterLayout.tightLift)
         try writeShowcase(to: directory.appendingPathComponent("showcase.gif"))
+        try writeWalk(to: directory.appendingPathComponent("walk.gif"))
+    }
+
+    /// The critter hops out, strolls along a strip of menu bar, then panics and dashes home.
+    private static func writeWalk(to url: URL) throws {
+        let points = 3.0
+        let spriteW = Double(CritterRenderer.columns) * points
+        let spriteH = Double(CritterRenderer.rows) * points
+        let width = 640, height = Int(spriteH) + 8
+        let home = Double(width) - spriteW - 16
+        let track = WanderTrack(screenMinX: 0, screenMaxX: Double(width), notch: nil, spriteWidth: spriteW)
+        var wanderer = Wanderer(timing: .init(outing: 120...120, rest: 16...16, pause: 12...20, nap: 12...20))
+        var rng = Fixed(state: 7)
+        var frames: [CGImage] = []
+        for t in 0..<320 {
+            // Out for a while, then something happens and it panics home, then rests a moment.
+            let frame = wanderer.step(
+                mayWander: t < 150 || t > 230, mood: .idle, home: home, track: track, points: points, using: &rng
+            )
+            let image = bitmap(width: width, height: height) {
+                background.setFill()
+                NSRect(x: 0, y: 0, width: width, height: height).fill()
+                let slot = NSRect(x: home, y: 4, width: spriteW, height: spriteH)
+                if frame.away {
+                    CritterRenderer.image(.socket, scale: points).draw(in: slot)
+                    CritterRenderer.image(frame.pose, scale: points)
+                        .draw(in: NSRect(x: frame.x.rounded(), y: 4, width: spriteW, height: spriteH))
+                } else {
+                    let resting = CritterVariant.blink.pose(at: t)
+                        .plugged(mood: .idle, tick: t, homecoming: frame.homecoming)
+                    CritterRenderer.image(resting, scale: points).draw(in: slot)
+                }
+            }
+            if let image { frames.append(image) }
+        }
+        try writeGIF(frames, to: url)
+    }
+
+    /// The same walk on every render, so the GIF only changes when the poses do.
+    private struct Fixed: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return state
+        }
     }
 
     /// All four moods side by side with captions, cycling through every variant.
@@ -43,7 +88,7 @@ enum DocRenderer {
                 NSRect(x: 0, y: 0, width: width, height: height).fill()
                 for (i, (mood, label)) in moods.enumerated() {
                     let variants = CritterVariant.variants(for: mood)
-                    let pose = variants[t / 32].pose(at: t % 32)
+                    let pose = variants[t / 32].pose(at: t % 32).plugged(mood: mood, tick: t, homecoming: false)
                     let x = i * cellW + 12
                     CritterRenderer.image(pose, scale: big)
                         .draw(in: NSRect(x: x, y: captionH, width: cellW - 24, height: spriteH))
