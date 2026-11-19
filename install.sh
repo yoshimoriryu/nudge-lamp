@@ -12,7 +12,8 @@ set -euo pipefail
 REPO="yoshimoriryu/agent-lamp"
 APP_NAME="Agent Lamp.app"
 DEST="$HOME/Applications"
-ZIP_URL="https://github.com/$REPO/releases/latest/download/AgentLamp.zip"
+# AGENT_LAMP_ZIP_URL lets tests point the installer at a local zip (file:///path/AgentLamp.zip).
+ZIP_URL="${AGENT_LAMP_ZIP_URL:-https://github.com/$REPO/releases/latest/download/AgentLamp.zip}"
 
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -42,6 +43,9 @@ quit_running() {
 
 if [[ "$mode" == "uninstall" ]]; then
   quit_running
+  if [[ -x "$DEST/$APP_NAME/Contents/MacOS/AgentLamp" ]]; then
+    "$DEST/$APP_NAME/Contents/MacOS/AgentLamp" --unregister-login-item || true
+  fi
   rm -rf "$DEST/$APP_NAME"
   say "Removed $DEST/$APP_NAME"
   exit 0
@@ -80,9 +84,6 @@ quit_running
 mkdir -p "$DEST"
 rm -rf "$DEST/$APP_NAME"
 ditto "$work/$APP_NAME" "$DEST/$APP_NAME"
-# Files fetched by a browser carry a quarantine flag that blocks unsigned apps. curl does not
-# set one, but clear it anyway in case the zip was downloaded by hand.
-xattr -dr com.apple.quarantine "$DEST/$APP_NAME" 2>/dev/null || true
 
 if [[ "$login" == "yes" ]]; then
   open "$DEST/$APP_NAME" --args --enable-login-item

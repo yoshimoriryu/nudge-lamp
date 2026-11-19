@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/yoshimoriryu/agent-lamp/main/instal
 
 On first launch macOS asks whether Agent Lamp may send notifications. The first time iTerm2 is in front, macOS also asks whether Agent Lamp may control iTerm2, which it needs to see which tab you are on and to switch tabs. If you said no to either one, click the critter. A Setup section at the top of the menu opens the right page in System Settings.
 
-The app has an ad hoc signature and is not notarized. Installing with curl skips the Gatekeeper prompt, because curl does not mark downloads as quarantined. If you download the zip with a browser instead, the script clears that flag when you install from it, or you can right-click the app and choose Open.
+The app has an ad hoc signature and is not notarized. The install script downloads it with curl, which does not mark files as quarantined, so Gatekeeper does not stop it. If you download the zip from the releases page with a browser instead, macOS blocks the first launch. To allow it, open System Settings > Privacy & Security and click Open Anyway.
 
 ## Commands
 

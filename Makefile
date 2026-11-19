@@ -27,7 +27,7 @@ doctor: app
 release:
 	UNIVERSAL=1 ./scripts/build-app.sh
 	rm -f build/AgentLamp.zip
-	ditto -c -k --keepParent "build/$(APP_NAME)" build/AgentLamp.zip
+	ditto -c -k --norsrc --noextattr --noacl --keepParent "build/$(APP_NAME)" build/AgentLamp.zip
 	gh release create "v$(VERSION)" build/AgentLamp.zip \
 		--title "Agent Lamp $(VERSION)" \
 		--notes "Install or update with: curl -fsSL https://raw.githubusercontent.com/yoshimoriryu/agent-lamp/main/install.sh | bash"

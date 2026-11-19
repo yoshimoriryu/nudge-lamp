@@ -1,5 +1,6 @@
 import AgentLampCore
 import AppKit
+import ServiceManagement
 
 // `AgentLamp --print` lists sessions once and exits. Handy for checking what the lamp sees.
 if CommandLine.arguments.contains("--print") {
@@ -11,6 +12,17 @@ if CommandLine.arguments.contains("--print") {
         let tty = ProcessLookup.tty(of: record.pid) ?? "-"
         let raw = [record.status, record.waitingFor].compactMap { $0 }.joined(separator: ": ")
         print("\(view.state)\t\(record.displayName)\t\(raw)\t\(tty)\t\(record.cwd)")
+    }
+    exit(0)
+}
+
+// `install.sh --uninstall` runs this first, so the login item does not outlive the app.
+if CommandLine.arguments.contains("--unregister-login-item") {
+    do {
+        try SMAppService.mainApp.unregister()
+        print("Removed Agent Lamp from login items")
+    } catch {
+        print("Login item was not registered: \(error.localizedDescription)")
     }
     exit(0)
 }
