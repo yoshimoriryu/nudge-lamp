@@ -18,6 +18,42 @@ enum DocRenderer {
             try writeGIF(frames, to: directory.appendingPathComponent("\(mood).gif"))
         }
         try writeSheet(to: directory.appendingPathComponent("sheet.png"))
+        try writeShowcase(to: directory.appendingPathComponent("showcase.gif"))
+    }
+
+    /// All four moods side by side with captions, cycling through every variant.
+    private static func writeShowcase(to url: URL) throws {
+        let moods: [(CritterMood, String)] = [
+            (.blocked, "Needs you"), (.finished, "Finished"), (.working, "Working"), (.idle, "Idle"),
+        ]
+        let big: CGFloat = 8
+        let cellW = Int(CGFloat(CritterRenderer.columns) * big) + 24
+        let spriteH = Int(CGFloat(CritterRenderer.rows) * big)
+        let captionH = 40
+        let width = cellW * moods.count, height = spriteH + captionH + 12
+        let caption: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 22, weight: .semibold),
+            .foregroundColor: NSColor(white: 0.85, alpha: 1),
+        ]
+        var frames: [CGImage] = []
+        for t in 0..<(32 * 3) {
+            let image = bitmap(width: width, height: height) {
+                background.setFill()
+                NSRect(x: 0, y: 0, width: width, height: height).fill()
+                for (i, (mood, label)) in moods.enumerated() {
+                    let variants = CritterVariant.variants(for: mood)
+                    let pose = variants[t / 32].pose(at: t % 32)
+                    let x = i * cellW + 12
+                    CritterRenderer.image(pose, scale: big)
+                        .draw(in: NSRect(x: x, y: captionH, width: cellW - 24, height: spriteH))
+                    let text = NSAttributedString(string: label, attributes: caption)
+                    let size = text.size()
+                    text.draw(at: NSPoint(x: CGFloat(i * cellW) + (CGFloat(cellW) - size.width) / 2, y: 10))
+                }
+            }
+            if let image { frames.append(image) }
+        }
+        try writeGIF(frames, to: url)
     }
 
     private static var cellSize: (Int, Int) {

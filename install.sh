@@ -52,7 +52,7 @@ trap 'rm -rf "$work"' EXIT
 
 if [[ "$mode" == "release" ]]; then
   say "Downloading the latest release"
-  if curl -fsSL "$ZIP_URL" -o "$work/AgentLamp.zip"; then
+  if curl -fsL "$ZIP_URL" -o "$work/AgentLamp.zip"; then
     ditto -x -k "$work/AgentLamp.zip" "$work"
   else
     say "Download failed, building from source instead"

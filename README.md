@@ -1,5 +1,7 @@
 # Agent Lamp
 
+![Agent Lamp critter in each mood](docs/showcase.gif)
+
 Agent Lamp is a macOS menu bar app that shows whether your Claude Code sessions are working, waiting for you, or idle. I built it because I kept switching to a browser while an agent ran, and only noticed much later that it had stopped on a permission prompt.
 
 ## The critter

@@ -21,6 +21,7 @@ cp "$BIN" "$APP/Contents/MacOS/AgentLamp"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 
 # Ad-hoc signature. Banners and the Automation prompt need a signed bundle.
-codesign --force --sign - "$APP"
+# The linker already signs arm64 binaries, so silence the "replacing existing signature" note.
+codesign --force --sign - "$APP" 2>/dev/null
 
 echo "Built $APP ($(lipo -archs "$APP/Contents/MacOS/AgentLamp"))"
