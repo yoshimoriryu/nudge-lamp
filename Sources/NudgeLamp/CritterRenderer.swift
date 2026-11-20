@@ -26,6 +26,7 @@ enum CritterRenderer {
     private static let red = NSColor.systemRed
     private static let yellow = NSColor.systemYellow
     private static let sweat = rgb(0x7DD3FC)
+    private static let dust = rgb(0xD1D5DB).withAlphaComponent(0.8)
 
     /// Glass fill and outline for each bulb color.
     private static func glass(_ bulb: CritterPose.Bulb) -> (fill: NSColor, rim: NSColor) {
@@ -152,6 +153,14 @@ enum CritterRenderer {
         px(ox + 1, oy + (pose.leftFootUp ? 12 : 13), 2, 1, foot)
         px(ox + 7, oy + (pose.rightFootUp ? 12 : 13), 2, 1, foot)
 
+        // A puff of dust on the ground, one pixel behind the back foot of a running critter.
+        if pose.dust != 0 {
+            let ground = lift + 13
+            let x = pose.dust > 0 ? ox - 3 : ox + 10
+            px(x, ground, 3, 1, dust)
+            px(x + 1, ground - 1, 1, 1, dust)
+        }
+
         // Thin metal arms
         func arm(_ x: Int, _ arm: CritterPose.Arm) {
             switch arm {
@@ -188,6 +197,7 @@ enum CritterRenderer {
         }
 
         // Badge in the top-right corner, fixed so it stays readable while the body moves.
+        // Sweat is the exception: it flies off the body.
         // Badge rows assume full headroom; shift them up when the canvas is shorter.
         let by = lift - CritterLayout.fullLift
         func bx(_ x: Int, _ y: Int, _ w: Int = 1, _ h: Int = 1, _ color: NSColor) {
@@ -217,11 +227,17 @@ enum CritterRenderer {
             bx(x + 2, y + 1, 1, 1, color)
             bx(x + 1, y + 2, 1, 1, color)
             bx(x, y + 3, 4, 1, color)
-        case .sweat(let step):
-            // A droplet flicking up and away from the side of the glass.
-            let x = 15 + step, y = 5 - step
-            bx(x, y, 1, 1, sweat)
-            bx(x, y + 1, 2, 1, sweat)
+        case .sweat(let step, let facing):
+            // A teardrop on the back top corner of the glass flicks off behind the runner in
+            // three steps, then a new one forms. Columns count back from the glass edge.
+            let path = [(back: 0, down: -2), (back: 4, down: -1), (back: 4, down: 1)]
+            guard step % 4 < path.count else { break }
+            let (back, down) = path[step % 4]
+            // The drop is 2 by 2 with its point on top, over the pixel nearer the head.
+            let near = facing > 0 ? ox + 1 - back : ox + 8 + back
+            let far = facing > 0 ? near - 1 : near + 1
+            px(near, oy + down, 1, 1, sweat)
+            px(min(near, far), oy + down + 1, 2, 2, sweat)
         case nil:
             break
         }

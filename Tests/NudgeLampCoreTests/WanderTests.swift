@@ -124,6 +124,26 @@ private func callHome(_ w: inout Wanderer, _ rng: inout Seeded, mood: CritterMoo
         #expect(frames.count < 40)
     }
 
+    @Test func runsHomeWithSweatAndDustFlyingBehind() {
+        for seed: UInt64 in [12, 13, 14, 15] {
+            var rng = Seeded(state: seed)
+            var w = Wanderer()
+            var body = walkAway(&w, &rng, distance: 300).x
+            for frame in callHome(&w, &rng) {
+                guard case .sweat(_, let facing) = frame.pose.badge else { continue }
+                #expect(abs(home - frame.x) <= abs(home - body))
+                #expect(facing == (home > body ? 1 : -1))
+                // Dust only when a foot is on the ground, and always behind.
+                if frame.pose.dust != 0 {
+                    #expect(frame.pose.dy == 0)
+                    #expect(frame.pose.dust == facing)
+                }
+                body = frame.x
+            }
+            #expect(w.isHome)
+        }
+    }
+
     @Test func panicsHomeWithinAboutThreeSecondsFromAnywhere() {
         var rng = Seeded(state: 5)
         var w = Wanderer()

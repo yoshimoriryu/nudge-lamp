@@ -40,8 +40,9 @@ public struct CritterPose: Hashable, Sendable {
         case sparkle(big: Bool)
         case dots(Int)
         case zee(step: Int)
-        /// A drop of sweat flying off a panicking critter.
-        case sweat(step: Int)
+        /// A drop of sweat flung off the back of a critter running toward `facing` (1 right, -1 left).
+        /// Unlike the other badges it follows the body.
+        case sweat(step: Int, facing: Int)
     }
 
     public var dx = 0
@@ -61,6 +62,8 @@ public struct CritterPose: Hashable, Sendable {
     public var unlit = false
     /// Halo around the glass while plugged in: 0 none, 1 soft, 2 bright.
     public var glow = 0
+    /// A puff of dust behind the feet of a critter running toward this side: 1 right, -1 left, 0 none.
+    public var dust = 0
 
     public init() {}
 }

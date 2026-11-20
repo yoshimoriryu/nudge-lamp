@@ -270,19 +270,22 @@ public struct Wanderer: Sendable {
         return p
     }
 
-    /// Arms flailing, feet a blur, eyes wide and a drop of sweat flying off.
+    /// A bouncing run: each stride pushes off one foot with the other arm thrown up, kicking up
+    /// dust, then leaps with both arms flailing. Sweat flies off the back of the glass.
     public static func panic(_ t: Int, facing: Int, bulb: CritterPose.Bulb) -> CritterPose {
         var p = CritterPose()
-        let up = t % 2 == 0
-        p.leftFootUp = up
-        p.rightFootUp = !up
-        p.dy = up ? -1 : 0
-        p.leftArm = up ? .up : .side
-        p.rightArm = up ? .side : .up
+        let phase = t % 4
+        let airborne = phase % 2 == 1
+        p.dy = airborne ? -2 : 0
+        p.leftFootUp = airborne || phase == 0
+        p.rightFootUp = airborne || phase == 2
+        p.leftArm = airborne || phase == 2 ? .up : .down
+        p.rightArm = airborne || phase == 0 ? .up : .down
+        p.dust = airborne ? 0 : facing
         p.eyes = .wide
         p.mouth = true
         p.bulb = bulb
-        p.badge = .sweat(step: t % 3)
+        p.badge = .sweat(step: t % 4, facing: facing)
         return p
     }
 
